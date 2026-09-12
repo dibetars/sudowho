@@ -523,19 +523,26 @@ def _last_push_info(repo: str) -> dict:
     return info
 
 
-def cmd_activity_heatmap(days: int = 70) -> dict:
-    """Aggregate real commit activity across all configured repos.
+def cmd_activity_heatmap(days: int = 70, project: str | None = None) -> dict:
+    """Aggregate real commit activity across configured repos.
 
     Returns {"days": N, "counts": {"YYYY-MM-DD": count}} built from actual
     `git log` history, GitHub-contribution-graph style. Only projects with
-    a `repo` path configured are included.
+    a `repo` path configured are included. Pass `project` (a slug) to scope
+    to a single project instead of all of them.
     """
     from collections import Counter
     from datetime import datetime, timedelta, timezone
 
     cfg = load_cfg()
+    if project and project != "all":
+        slug, proj = resolve_project(project)
+        items = [(slug, proj)]
+    else:
+        items = list(cfg["projects"].items())
+
     counts: Counter[str] = Counter()
-    for _, proj in cfg["projects"].items():
+    for _, proj in items:
         repo = proj.get("repo")
         if not repo or not Path(repo).exists() or not in_git_repo(repo):
             continue
@@ -552,7 +559,7 @@ def cmd_activity_heatmap(days: int = 70) -> dict:
     for i in range(days - 1, -1, -1):
         d = (today - timedelta(days=i)).isoformat()
         ordered[d] = counts.get(d, 0)
-    return {"days": days, "counts": ordered}
+    return {"days": days, "project": project or "all", "counts": ordered}
 
 
 def cmd_status_breakdown() -> dict:
@@ -584,6 +591,62 @@ def cmd_last_push(fetch: bool = False) -> list[dict]:
         info = _last_push_info(repo) if repo else {"ok": False, "error": "no repo path configured"}
         out.append({"slug": slug, "name": proj["name"], "whoami": proj.get("whoami"), **info})
     return out
+
+
+# --------------------------------------------------------------------------
+# Project detail (aggregates everything sudowho knows about one project)
+# --------------------------------------------------------------------------
+
+def cmd_project_detail(slug_or_name: str) -> dict:
+    slug, proj = resolve_project(slug_or_name)
+    cfg = load_cfg()
+    detail: dict = {
+        "slug": slug,
+        "name": proj["name"],
+        "account": proj.get("account"),
+        "provider": proj.get("provider"),
+        "whoami": proj.get("whoami"),
+        "ref": proj.get("ref"),
+        "repo": proj.get("repo"),
+        "pauseWhenIdle": proj.get("pauseWhenIdle", False),
+    }
+
+    if proj.get("provider") == "supabase" and proj.get("ref"):
+        token = get_token(proj["account"])
+        if token:
+            code, data = api(token, "GET", f"/projects/{proj['ref']}")
+            if code < 400 and isinstance(data, dict):
+                detail["computeStatus"] = data.get("status")
+                detail["region"] = data.get("region")
+        beats = (load_state().get("heartbeats") or {}).get(slug) or {}
+        window = _inactivity_days(cfg)
+        ago = _days_since(beats.get("lastAt"))
+        detail["heartbeat"] = {
+            "enabled": _heartbeat_enabled(proj, cfg),
+            "lastAt": beats.get("lastAt"),
+            "daysSince": ago,
+            "daysLeft": max(0.0, window - ago) if ago is not None else None,
+            "window": window,
+        }
+
+    repo = proj.get("repo")
+    if repo:
+        detail["lastPush"] = _last_push_info(repo)
+    else:
+        detail["lastPush"] = {"ok": False, "error": "no repo path configured"}
+
+    env_file = env_path(slug)
+    if env_file.exists():
+        keys = []
+        for line in env_file.read_text().splitlines():
+            line = line.strip()
+            if line and not line.startswith("#") and "=" in line:
+                keys.append(line.split("=", 1)[0])
+        detail["env"] = {"path": str(env_file), "keys": keys}
+    else:
+        detail["env"] = {"path": None, "keys": []}
+
+    return detail
 
 
 # --------------------------------------------------------------------------
@@ -669,9 +732,12 @@ def main(argv: list[str]) -> None:
         out(cmd_heartbeat_status())
     elif cmd == "activity-heatmap":
         days = int(rest[0]) if rest else 70
-        out(cmd_activity_heatmap(days))
+        project = rest[1] if len(rest) > 1 else None
+        out(cmd_activity_heatmap(days, project))
     elif cmd == "status-breakdown":
         out(cmd_status_breakdown())
+    elif cmd == "project-detail":
+        out(cmd_project_detail(rest[0]))
     elif cmd == "last-push":
         out(cmd_last_push(fetch="--fetch" in rest))
     elif cmd == "env-show":

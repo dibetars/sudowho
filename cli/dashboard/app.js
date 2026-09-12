@@ -87,13 +87,17 @@ function statusPill(status) {
 }
 
 // ---- Overview ----
+const OVERVIEW_LIMIT = 5;
+const heatmapState = { project: "all", days: 30 };
+let overviewProjects = [];
+
 async function loadOverview() {
-  const [compute, heartbeats, profiles, breakdown, heatmap] = await Promise.all([
+  const [compute, heartbeats, profiles, breakdown, projects] = await Promise.all([
     get("/api/compute-status"),
     get("/api/heartbeat-status"),
     get("/api/profiles"),
     get("/api/status-breakdown"),
-    get("/api/activity-heatmap?days=70"),
+    get("/api/projects"),
   ]);
   const active = compute.filter((c) => (c.status || "").includes("ACTIVE")).length;
   const paused = compute.filter((c) => (c.status || "").includes("INACTIVE")).length;
@@ -106,20 +110,43 @@ async function loadOverview() {
 
   const ctBody = $("#compute-table tbody");
   ctBody.innerHTML = compute
+    .slice(0, OVERVIEW_LIMIT)
     .map((c) => `<tr><td>${c.name}</td><td>${statusPill(c.status)}</td><td></td></tr>`)
-    .join("");
+    .join("") || `<tr><td colspan="3" class="muted">No Supabase-backed projects yet.</td></tr>`;
 
   const hbBody = $("#heartbeat-table tbody");
   hbBody.innerHTML = heartbeats
+    .slice(0, OVERVIEW_LIMIT)
     .map((h) => {
       const days = h.daysLeft !== null && h.daysLeft !== undefined ? `${h.daysLeft.toFixed(1)}d` : "?";
       const last = h.lastAt ? new Date(h.lastAt).toLocaleString() : "never";
       return `<tr><td>${h.name}</td><td>${last}</td><td>${days}</td></tr>`;
     })
-    .join("");
+    .join("") || `<tr><td colspan="3" class="muted">No heartbeat data yet.</td></tr>`;
 
   renderDonut(breakdown);
   renderRiskList(heartbeats);
+
+  overviewProjects = Object.entries(projects).map(([slug, p]) => ({ slug, name: p.name }));
+  populateHeatmapProjectSelect();
+  await refreshHeatmap();
+}
+
+function populateHeatmapProjectSelect() {
+  const select = $("#heatmap-project");
+  if (!select || select.dataset.populated) return;
+  select.innerHTML =
+    `<option value="all">All projects</option>` +
+    overviewProjects.map((p) => `<option value="${p.slug}">${p.name}</option>`).join("");
+  select.dataset.populated = "1";
+  select.addEventListener("change", () => {
+    heatmapState.project = select.value;
+    refreshHeatmap();
+  });
+}
+
+async function refreshHeatmap() {
+  const heatmap = await get(`/api/activity-heatmap?days=${heatmapState.days}&project=${heatmapState.project}`);
   renderHeatmap(heatmap);
 }
 
@@ -264,9 +291,88 @@ async function loadProjects() {
   const body = $("#projects-table tbody");
   body.innerHTML = Object.entries(projects)
     .map(
-      ([slug, p]) => `<tr><td>${slug}</td><td>${p.name}</td><td>${p.whoami || "-"}</td><td>${p.provider}</td><td>${p.account}</td></tr>`
+      ([slug, p]) => `<tr>
+        <td>${slug}</td>
+        <td>${p.name}</td>
+        <td>${p.whoami || "-"}</td>
+        <td>${p.provider}</td>
+        <td>${p.account}</td>
+        <td><button class="project-link" data-slug="${slug}">View details →</button></td>
+      </tr>`
     )
     .join("");
+
+  $$(".project-link").forEach((btn) => btn.addEventListener("click", () => openProjectModal(btn.dataset.slug)));
+}
+
+// ---- Project detail modal ----
+async function openProjectModal(slug) {
+  const overlay = $("#project-modal");
+  const title = $("#modal-title");
+  const body = $("#modal-body");
+  overlay.classList.remove("hidden");
+  title.textContent = "Loading...";
+  body.innerHTML = "";
+
+  try {
+    const d = await get(`/api/project?slug=${encodeURIComponent(slug)}`);
+    title.textContent = d.name;
+
+    const row = (k, v) => `<div class="detail-row"><span class="k">${k}</span><span class="v">${v ?? "—"}</span></div>`;
+    let html = `<div class="detail-section-title">Project</div>`;
+    html += row("Slug", d.slug);
+    html += row("Account", d.account);
+    html += row("Provider", d.provider);
+    html += row("Whoami profile", d.whoami);
+    html += row("Ref", d.ref);
+    html += row("Repo path", d.repo);
+    html += row("Pause when idle", d.pauseWhenIdle ? "yes" : "no");
+
+    if (d.computeStatus !== undefined) {
+      html += `<div class="detail-section-title">Compute</div>`;
+      html += row("Status", statusPill(d.computeStatus));
+      html += row("Region", d.region);
+    }
+
+    if (d.heartbeat) {
+      html += `<div class="detail-section-title">Heartbeat</div>`;
+      html += row("Enabled", d.heartbeat.enabled ? "yes" : "no");
+      html += row("Last beat", d.heartbeat.lastAt ? new Date(d.heartbeat.lastAt).toLocaleString() : "never");
+      html += row("Days left", d.heartbeat.daysLeft !== null && d.heartbeat.daysLeft !== undefined ? `${d.heartbeat.daysLeft.toFixed(1)}d` : "?");
+    }
+
+    if (d.lastPush) {
+      html += `<div class="detail-section-title">Git activity</div>`;
+      if (d.lastPush.ok) {
+        html += row("Branch", d.lastPush.branch);
+        html += row("Last push", d.lastPush.lastPushAt ? new Date(d.lastPush.lastPushAt).toLocaleString() : "?");
+        html += row("Last commit", d.lastPush.lastPushSubject);
+        html += row("Ahead / behind", `${d.lastPush.ahead ?? "?"} / ${d.lastPush.behind ?? "?"}`);
+        html += row("Working tree", d.lastPush.dirty ? "dirty" : "clean");
+      } else {
+        html += row("Status", d.lastPush.error || "no repo configured");
+      }
+    }
+
+    html += `<div class="detail-section-title">Env vault</div>`;
+    if (d.env && d.env.keys && d.env.keys.length) {
+      html += `<div class="env-keys">${d.env.keys.map((k) => `<span class="env-key">${k}</span>`).join("")}</div>`;
+    } else {
+      html += `<div class="muted">No env file stored for this project.</div>`;
+    }
+
+    body.innerHTML = html;
+  } catch (e) {
+    title.textContent = "Error";
+    body.innerHTML = `<div class="muted">${e.message}</div>`;
+  }
+}
+
+function initModal() {
+  $("#modal-close").addEventListener("click", () => $("#project-modal").classList.add("hidden"));
+  $("#project-modal").addEventListener("click", (e) => {
+    if (e.target.id === "project-modal") $("#project-modal").classList.add("hidden");
+  });
 }
 
 // ---- Compute ----
@@ -359,9 +465,45 @@ function initButtons() {
 
   const fetchRefresh = $("#fetch-refresh-btn");
   fetchRefresh && fetchRefresh.addEventListener("click", withLoading(fetchRefresh, () => loadActivity(true)));
+
+  // "View all →" buttons under the compact Overview tables jump to the full tab.
+  $$(".view-all-btn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const view = btn.dataset.goto;
+      const navBtn = document.querySelector(`.nav-item[data-view="${view}"]`);
+      if (navBtn) navBtn.click();
+    });
+  });
+
+  // Heatmap range segmented control (30d / 60d / all time).
+  $$("#heatmap-range .segmented-btn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      $$("#heatmap-range .segmented-btn").forEach((b) => b.classList.remove("active"));
+      btn.classList.add("active");
+      heatmapState.days = parseInt(btn.dataset.days, 10);
+      refreshHeatmap();
+    });
+  });
+
+  // Stop server.
+  const stopBtn = $("#stop-server-btn");
+  stopBtn.addEventListener("click", async () => {
+    if (!confirm("Stop the local sudowho dashboard server? You'll need to run `sudowho dashboard` again to reopen it.")) {
+      return;
+    }
+    stopBtn.disabled = true;
+    stopBtn.textContent = "Stopping...";
+    try {
+      await post("/api/shutdown");
+    } catch (e) {
+      // The server may close the connection before responding — that's expected.
+    }
+    $("#shutdown-overlay").classList.remove("hidden");
+  });
 }
 
 initTheme();
 initNav();
 initButtons();
+initModal();
 loadOverview();

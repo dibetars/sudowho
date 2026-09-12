@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import sys
+import threading
 import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -79,9 +80,16 @@ class Handler(BaseHTTPRequestHandler):
                 self._json(core.cmd_last_push(fetch="fetch" in qs))
             elif path == "/api/activity-heatmap":
                 days = int(qs.get("days", ["70"])[0])
-                self._json(core.cmd_activity_heatmap(days))
+                project = (qs.get("project") or [None])[0]
+                self._json(core.cmd_activity_heatmap(days, project))
             elif path == "/api/status-breakdown":
                 self._json(core.cmd_status_breakdown())
+            elif path == "/api/project":
+                slug = (qs.get("slug") or [None])[0]
+                if not slug:
+                    self._json({"error": "missing slug"}, 400)
+                else:
+                    self._json(core.cmd_project_detail(slug))
             elif path == "/api/state":
                 self._json(core.load_state())
             else:
@@ -114,6 +122,11 @@ class Handler(BaseHTTPRequestHandler):
                 self._json(core.cmd_pause_idle())
             elif path == "/api/heartbeat":
                 self._json(core.cmd_heartbeat(body.get("slug")))
+            elif path == "/api/shutdown":
+                self._json({"ok": True, "message": "Shutting down..."})
+                # Shut down from a separate thread — calling server.shutdown()
+                # from the handler's own thread would deadlock.
+                threading.Thread(target=self.server.shutdown, daemon=True).start()
             else:
                 self._json({"error": "unknown endpoint"}, 404)
         except SystemExit as e:
@@ -135,7 +148,8 @@ def serve(port: int = 4173, open_browser: bool = True) -> None:
     try:
         server.serve_forever()
     except KeyboardInterrupt:
-        print("\nStopped.")
+        pass
+    print("\nStopped.")
 
 
 if __name__ == "__main__":

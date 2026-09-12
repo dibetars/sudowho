@@ -226,6 +226,9 @@ for name,p in core.load_cfg()['profiles'].items():
     heartbeat) shift; py heartbeat "$@" ;;
     heartbeat-status) py heartbeat-status ;;
     last-push) shift; py last-push "$@" ;;
+    activity-heatmap) shift; py activity-heatmap "$@" ;;
+    status-breakdown) py status-breakdown ;;
+    project) shift; py project-detail "$@" ;;
     env) shift; py env-show "$1" ;;
     env-to) shift; py env-to "$@" ;;
     env-set) shift; py env-set "$@" ;;
