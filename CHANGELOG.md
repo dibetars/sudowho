@@ -9,6 +9,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ### Added
 - Custom domain `sudowho.tarsusstudios.com` added to the Vercel project
   (pending DNS: `A sudowho.tarsusstudios.com → 76.76.21.21`).
+- Dashboard Overview: donut chart of compute status, a "projects at risk"
+  progress list (days left before auto-pause, sorted ascending), and a
+  real activity heatmap built from actual `git log` history across every
+  configured repo (GitHub-contribution-graph style, 70-day window).
+- Loading states on every dashboard action button (wake, pause, wake-all,
+  pause-idle, run heartbeat, fetch remotes, identity switch) — buttons now
+  show a spinner and disable themselves while the request is in flight.
+- `core.py`: `cmd_activity_heatmap()` and `cmd_status_breakdown()`, plus
+  `sudowho activity-heatmap` / `sudowho status-breakdown` CLI commands and
+  matching `/api/activity-heatmap` / `/api/status-breakdown` dashboard
+  endpoints.
+
+### Fixed
+- `core.py` `get_token()` now falls back to the legacy
+  `ROOT/supabase/<account>/access-token` path, so accounts set up before
+  the public release keep working without re-entering tokens.
 
 ## [0.1.0] - 2026-09-12
 
