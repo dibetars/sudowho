@@ -21,6 +21,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   matching `/api/activity-heatmap` / `/api/status-breakdown` dashboard
   endpoints.
 
+- Activity heatmap: project dropdown (all or a single project) and a
+  30d/60d/all-time range control; grid now fills the full card width.
+- Overview Compute/Heartbeat tables capped to 5 rows each with a
+  "View all →" button that jumps straight to the corresponding tab.
+- Project detail modal: click "View details" on any Projects row to see
+  account, provider, whoami profile, ref, repo path, live compute status,
+  heartbeat state, git activity, and env vault key names (values are
+  never shown in the UI).
+- "Stop server" button in the sidebar — gracefully shuts down the local
+  dashboard server (with a confirm prompt) via a new `/api/shutdown`
+  endpoint.
+- `core.py`: `cmd_project_detail()` aggregates everything sudowho knows
+  about a single project; `cmd_activity_heatmap()` now accepts a project
+  filter.
+
 ### Fixed
 - `core.py` `get_token()` now falls back to the legacy
   `ROOT/supabase/<account>/access-token` path, so accounts set up before
