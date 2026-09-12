@@ -582,9 +582,14 @@ def cmd_activity_heatmap(days: int = 70, project: str | None = None) -> dict:
     return {"days": days, "project": project or "all", "counts": ordered}
 
 
-def cmd_status_breakdown() -> dict:
-    """Real counts of project compute status, for a donut/pie chart."""
-    compute = cmd_compute_status()
+def cmd_status_breakdown(compute: list[dict] | None = None) -> dict:
+    """Real counts of project compute status, for a donut/pie chart.
+
+    Pass an already-fetched `compute` list (from cmd_compute_status) to
+    avoid re-hitting the Supabase Management API for the same data.
+    """
+    if compute is None:
+        compute = cmd_compute_status()
     from collections import Counter
 
     buckets: Counter[str] = Counter()

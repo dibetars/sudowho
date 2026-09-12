@@ -63,6 +63,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Project detail modal redesigned: colored section icons, a live status
   pill next to the project name, and a progress bar for heartbeat
   days-left matching the Overview "projects at risk" styling.
+- Dashboard server: `/api/compute-status`, `/api/status-breakdown`,
+  `/api/activity-heatmap`, `/api/last-push`, and `/api/project` now use a
+  short-lived in-memory TTL cache (20-60s) instead of re-hitting the
+  Supabase Management API / re-scanning `git log` on every single tab
+  switch — cache hits went from ~8s to <20ms on a real 20-project config.
+  Wake/pause/heartbeat actions invalidate the relevant cache entries
+  immediately so the UI never shows stale state after something you did
+  yourself; the "Refresh" button and post-action reloads pass `?fresh=1`
+  to force a real refetch when it matters.
+- Dashboard UI: every view (Overview, Identity, Projects, Compute,
+  Heartbeat, Activity, project detail modal) now renders shimmer skeleton
+  placeholders immediately on load/tab-switch/refresh instead of a blank
+  or stale table while data is in flight.
 
 ## [0.1.0] - 2026-09-12
 

@@ -9,8 +9,19 @@ async function api(path, opts) {
   if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
   return data;
 }
-const get = (path) => api(path);
+// Most GET endpoints are backed by a short-lived server-side cache (see
+// dashboard_server.py) since some of them hit the Supabase API or run git
+// across every repo. Pass `fresh: true` to bypass it (used by the Refresh
+// button and right after an action that we know changed the data).
+const get = (path, { fresh = false } = {}) => {
+  const url = fresh ? path + (path.includes("?") ? "&" : "?") + "fresh=1" : path;
+  return api(url);
+};
 const post = (path, body) => api(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body || {}) });
+
+// ---- Skeleton loading placeholders ----
+const skeletonRow = (cols) => `<tr class="skeleton-row">${Array.from({ length: cols }, () => `<td><span class="skeleton skeleton-text"></span></td>`).join("")}</tr>`;
+const skeletonRows = (cols, n = 4) => Array.from({ length: n }, () => skeletonRow(cols)).join("");
 
 // ---- Button loading states ----
 // Wraps any button click handler so it shows a spinner + "Working..." label
@@ -90,13 +101,31 @@ function statusPill(status) {
 const OVERVIEW_LIMIT = 5;
 const HEATMAP_DAYS = 70; // ~10 weeks, matches the reference design
 
-async function loadOverview() {
+function skeletonOverview() {
+  $("#m-active").innerHTML = `<span class="skeleton skeleton-metric"></span>`;
+  $("#m-paused").innerHTML = `<span class="skeleton skeleton-metric"></span>`;
+  $("#m-heartbeats").innerHTML = `<span class="skeleton skeleton-metric"></span>`;
+  $("#m-profiles").innerHTML = `<span class="skeleton skeleton-metric"></span>`;
+  $("#compute-table tbody").innerHTML = skeletonRows(3, 3);
+  $("#heartbeat-table tbody").innerHTML = skeletonRows(3, 3);
+  $("#status-donut").innerHTML = `<circle cx="60" cy="60" r="48" fill="none" stroke="var(--border)" stroke-width="16" />`;
+  $("#status-legend").innerHTML = `<span class="skeleton skeleton-text"></span><span class="skeleton skeleton-text"></span>`;
+  $("#risk-list").innerHTML = Array.from(
+    { length: 3 },
+    () => `<div class="risk-row"><div class="risk-top"><span class="skeleton skeleton-text"></span></div><div class="skeleton skeleton-bar"></div></div>`
+  ).join("");
+  $("#heatmap").innerHTML = `<span class="skeleton" style="width:100%;height:80px;"></span>`;
+  $("#heatmap-months").innerHTML = "";
+}
+
+async function loadOverview(fresh = false) {
+  skeletonOverview();
   const [compute, heartbeats, profiles, breakdown, heatmap] = await Promise.all([
-    get("/api/compute-status"),
+    get("/api/compute-status", { fresh }),
     get("/api/heartbeat-status"),
     get("/api/profiles"),
-    get("/api/status-breakdown"),
-    get(`/api/activity-heatmap?days=${HEATMAP_DAYS}`),
+    get("/api/status-breakdown", { fresh }),
+    get(`/api/activity-heatmap?days=${HEATMAP_DAYS}`, { fresh }),
   ]);
   const active = compute.filter((c) => (c.status || "").includes("ACTIVE")).length;
   const paused = compute.filter((c) => (c.status || "").includes("INACTIVE")).length;
@@ -248,6 +277,10 @@ function renderHeatmap(heatmap) {
 
 // ---- Identity ----
 async function loadIdentity() {
+  $("#profiles-list").innerHTML = Array.from(
+    { length: 2 },
+    () => `<div class="profile-card"><span class="skeleton skeleton-text" style="width:60px;height:16px;margin-bottom:8px;"></span><span class="skeleton skeleton-text"></span></div>`
+  ).join("");
   const profiles = await get("/api/profiles");
   const grid = $("#profiles-list");
   grid.innerHTML = Object.entries(profiles)
@@ -374,6 +407,7 @@ async function startVercelReauth(profile, statusEl, btn) {
 
 // ---- Projects ----
 async function loadProjects() {
+  $("#projects-table tbody").innerHTML = skeletonRows(6, 6);
   const projects = await get("/api/projects");
   const body = $("#projects-table tbody");
   body.innerHTML = Object.entries(projects)
@@ -398,8 +432,12 @@ async function openProjectModal(slug) {
   const title = $("#modal-title");
   const body = $("#modal-body");
   overlay.classList.remove("hidden");
-  title.textContent = "Loading...";
-  body.innerHTML = "";
+  title.innerHTML = `<span class="skeleton skeleton-text" style="width:140px;height:18px;"></span>`;
+  $("#modal-title-pill").innerHTML = "";
+  body.innerHTML = Array.from(
+    { length: 5 },
+    () => `<div class="detail-row"><span class="skeleton skeleton-text" style="width:90px;"></span><span class="skeleton skeleton-text" style="width:110px;"></span></div>`
+  ).join("");
 
   try {
     const d = await get(`/api/project?slug=${encodeURIComponent(slug)}`);
@@ -473,8 +511,9 @@ function initModal() {
 }
 
 // ---- Compute ----
-async function loadCompute() {
-  const compute = await get("/api/compute-status");
+async function loadCompute(fresh = false) {
+  $("#compute-table-2 tbody").innerHTML = skeletonRows(3, 6);
+  const compute = await get("/api/compute-status", { fresh });
   const body = $("#compute-table-2 tbody");
   body.innerHTML = compute
     .map(
@@ -491,16 +530,17 @@ async function loadCompute() {
 
   $$('[data-action="wake"]').forEach((b) => {
     b.dataset.loadingLabel = "Waking...";
-    b.addEventListener("click", withLoading(b, () => post("/api/wake", { slug: b.dataset.slug }).then(loadCompute)));
+    b.addEventListener("click", withLoading(b, () => post("/api/wake", { slug: b.dataset.slug }).then(() => loadCompute(true))));
   });
   $$('[data-action="pause"]').forEach((b) => {
     b.dataset.loadingLabel = "Pausing...";
-    b.addEventListener("click", withLoading(b, () => post("/api/pause", { slug: b.dataset.slug }).then(loadCompute)));
+    b.addEventListener("click", withLoading(b, () => post("/api/pause", { slug: b.dataset.slug }).then(() => loadCompute(true))));
   });
 }
 
 // ---- Heartbeat ----
 async function loadHeartbeat() {
+  $("#heartbeat-table-2 tbody").innerHTML = skeletonRows(4, 6);
   const heartbeats = await get("/api/heartbeat-status");
   const body = $("#heartbeat-table-2 tbody");
   body.innerHTML = heartbeats
@@ -513,8 +553,9 @@ async function loadHeartbeat() {
 }
 
 // ---- Activity ----
-async function loadActivity(fetchRemotes) {
-  const activity = await get(`/api/last-push${fetchRemotes ? "?fetch=1" : ""}`);
+async function loadActivity(fetchRemotes, fresh = false) {
+  $("#activity-table tbody").innerHTML = skeletonRows(5, 6);
+  const activity = await get(`/api/last-push${fetchRemotes ? "?fetch=1" : ""}`, { fresh });
   const body = $("#activity-table tbody");
   body.innerHTML = activity
     .map((a) => {
@@ -528,13 +569,13 @@ async function loadActivity(fetchRemotes) {
 }
 
 // ---- Router ----
-function loadView(view) {
-  if (view === "overview") loadOverview();
-  else if (view === "identity") loadIdentity();
-  else if (view === "projects") loadProjects();
-  else if (view === "compute") loadCompute();
-  else if (view === "heartbeat") loadHeartbeat();
-  else if (view === "activity") loadActivity(false);
+function loadView(view, fresh = false) {
+  if (view === "overview") return loadOverview(fresh);
+  else if (view === "identity") return loadIdentity();
+  else if (view === "projects") return loadProjects();
+  else if (view === "compute") return loadCompute(fresh);
+  else if (view === "heartbeat") return loadHeartbeat();
+  else if (view === "activity") return loadActivity(false, fresh);
 }
 
 function initButtons() {
@@ -544,24 +585,27 @@ function initButtons() {
     "click",
     withLoading(refreshBtn, async () => {
       const active = $(".nav-item.active");
-      if (active) await loadView(active.dataset.view);
+      if (active) await loadView(active.dataset.view, true); // bypass cache
     })
   );
 
+  // Wake/pause/heartbeat mutate server state — the server already
+  // invalidates its own cache for these, but we also request `fresh`
+  // here so the very next render definitely reflects the change.
   const wakeAll1 = $("#wake-all-btn");
-  wakeAll1 && wakeAll1.addEventListener("click", withLoading(wakeAll1, () => post("/api/wake-all").then(loadOverview)));
+  wakeAll1 && wakeAll1.addEventListener("click", withLoading(wakeAll1, () => post("/api/wake-all").then(() => loadOverview(true))));
 
   const wakeAll2 = $("#wake-all-btn-2");
-  wakeAll2 && wakeAll2.addEventListener("click", withLoading(wakeAll2, () => post("/api/wake-all").then(loadCompute)));
+  wakeAll2 && wakeAll2.addEventListener("click", withLoading(wakeAll2, () => post("/api/wake-all").then(() => loadCompute(true))));
 
   const pauseIdle = $("#pause-idle-btn");
-  pauseIdle && pauseIdle.addEventListener("click", withLoading(pauseIdle, () => post("/api/pause-idle").then(loadCompute)));
+  pauseIdle && pauseIdle.addEventListener("click", withLoading(pauseIdle, () => post("/api/pause-idle").then(() => loadCompute(true))));
 
   const heartbeatAll = $("#heartbeat-all-btn");
   heartbeatAll && heartbeatAll.addEventListener("click", withLoading(heartbeatAll, () => post("/api/heartbeat").then(loadHeartbeat)));
 
   const fetchRefresh = $("#fetch-refresh-btn");
-  fetchRefresh && fetchRefresh.addEventListener("click", withLoading(fetchRefresh, () => loadActivity(true)));
+  fetchRefresh && fetchRefresh.addEventListener("click", withLoading(fetchRefresh, () => loadActivity(true, true)));
 
   // "View all →" buttons under the compact Overview tables jump to the full tab.
   $$(".view-all-btn").forEach((btn) => {

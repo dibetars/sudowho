@@ -14,6 +14,7 @@ import re
 import subprocess
 import sys
 import threading
+import time
 import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -23,6 +24,39 @@ sys.path.insert(0, str(Path(__file__).parent))
 import core  # noqa: E402
 
 ASSETS_DIR = Path(__file__).parent.parent / "dashboard"
+
+# ---------------------------------------------------------------------------
+# Tiny TTL cache. Some endpoints hit the Supabase Management API once per
+# configured project (compute-status) or run several `git log`s across every
+# repo (activity-heatmap) — expensive enough that switching tabs shouldn't
+# always refetch from source. Mutations (wake/pause/heartbeat) invalidate
+# the relevant keys immediately so the UI never shows stale state after an
+# action *you* took; everything else just expires on its own after a few
+# seconds. Pass `?fresh=1` on any cached endpoint to force a refetch.
+# ---------------------------------------------------------------------------
+
+_cache: dict[str, tuple[float, object]] = {}
+_cache_lock = threading.Lock()
+
+
+def _cached(key: str, ttl: float, fn, fresh: bool = False):
+    now = time.time()
+    if not fresh:
+        with _cache_lock:
+            hit = _cache.get(key)
+            if hit and now - hit[0] < ttl:
+                return hit[1], True
+    value = fn()
+    with _cache_lock:
+        _cache[key] = (now, value)
+    return value, False
+
+
+def _invalidate(*prefixes: str) -> None:
+    with _cache_lock:
+        for key in list(_cache):
+            if any(key.startswith(p) for p in prefixes):
+                del _cache[key]
 
 # ---------------------------------------------------------------------------
 # Vercel reauthentication (device-code flow, run in a background thread so
@@ -86,12 +120,14 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, fmt, *args):  # quieter default logging
         pass
 
-    def _json(self, payload, status=200):
+    def _json(self, payload, status=200, cache_hit: bool | None = None):
         body = json.dumps(payload, default=str).encode()
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Access-Control-Allow-Origin", "http://127.0.0.1")
+        if cache_hit is not None:
+            self.send_header("X-Sudowho-Cache", "HIT" if cache_hit else "MISS")
         self.end_headers()
         self.wfile.write(body)
 
@@ -132,23 +168,41 @@ class Handler(BaseHTTPRequestHandler):
                 cfg = core.load_cfg()
                 self._json({k: {**v, "hasToken": bool(core.get_token(k))} for k, v in cfg["supabaseAccounts"].items()})
             elif path == "/api/compute-status":
-                self._json(core.cmd_compute_status())
+                fresh = "fresh" in qs
+                data, hit = _cached("compute-status", 30, core.cmd_compute_status, fresh)
+                self._json(data, cache_hit=hit)
             elif path == "/api/heartbeat-status":
+                # Reads local state.json only — cheap, never worth caching.
                 self._json(core.cmd_heartbeat_status())
             elif path == "/api/last-push":
-                self._json(core.cmd_last_push(fetch="fetch" in qs))
+                fetch = "fetch" in qs
+                fresh = "fresh" in qs or fetch
+                data, hit = _cached(f"last-push:{fetch}", 20, lambda: core.cmd_last_push(fetch=fetch), fresh)
+                self._json(data, cache_hit=hit)
             elif path == "/api/activity-heatmap":
                 days = int(qs.get("days", ["70"])[0])
                 project = (qs.get("project") or [None])[0]
-                self._json(core.cmd_activity_heatmap(days, project))
+                fresh = "fresh" in qs
+                data, hit = _cached(
+                    f"heatmap:{days}:{project}", 60, lambda: core.cmd_activity_heatmap(days, project), fresh
+                )
+                self._json(data, cache_hit=hit)
             elif path == "/api/status-breakdown":
-                self._json(core.cmd_status_breakdown())
+                fresh = "fresh" in qs
+                # Reuse the cached compute-status list instead of hitting
+                # the Supabase API a second time for the same data — the
+                # breakdown itself is just an in-memory count, no need to
+                # cache it separately.
+                compute, hit = _cached("compute-status", 30, core.cmd_compute_status, fresh)
+                self._json(core.cmd_status_breakdown(compute), cache_hit=hit)
             elif path == "/api/project":
                 slug = (qs.get("slug") or [None])[0]
+                fresh = "fresh" in qs
                 if not slug:
                     self._json({"error": "missing slug"}, 400)
                 else:
-                    self._json(core.cmd_project_detail(slug))
+                    data, hit = _cached(f"project:{slug}", 20, lambda: core.cmd_project_detail(slug), fresh)
+                    self._json(data, cache_hit=hit)
             elif path == "/api/state":
                 self._json(core.load_state())
             elif path == "/api/vercel-login-status":
@@ -176,15 +230,25 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/api/switch":
                 self._json(core.cmd_switch_identity(body["profile"], body.get("repo", ".")))
             elif path == "/api/wake":
-                self._json(core.cmd_wake(body["slug"], body.get("pauseOthers", False)))
+                result = core.cmd_wake(body["slug"], body.get("pauseOthers", False))
+                _invalidate("compute-status", "project:")
+                self._json(result)
             elif path == "/api/wake-all":
-                self._json(core.cmd_wake_all())
+                result = core.cmd_wake_all()
+                _invalidate("compute-status", "project:")
+                self._json(result)
             elif path == "/api/pause":
-                self._json(core.cmd_pause(body["slug"]))
+                result = core.cmd_pause(body["slug"])
+                _invalidate("compute-status", "project:")
+                self._json(result)
             elif path == "/api/pause-idle":
-                self._json(core.cmd_pause_idle())
+                result = core.cmd_pause_idle()
+                _invalidate("compute-status", "project:")
+                self._json(result)
             elif path == "/api/heartbeat":
-                self._json(core.cmd_heartbeat(body.get("slug")))
+                result = core.cmd_heartbeat(body.get("slug"))
+                _invalidate("project:")  # heartbeat-status itself isn't cached
+                self._json(result)
             elif path == "/api/vercel-login":
                 profile = body.get("profile")
                 if not profile:
