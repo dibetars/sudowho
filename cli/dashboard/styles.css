@@ -45,26 +45,29 @@ code, .inline { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, mono
 
 .shell { display: flex; min-height: 100vh; }
 
-/* Sidebar */
+/* Sidebar — sticky to the viewport so brand + footer never scroll away.
+   Nav items overflow internally if the window is shorter than the list. */
 .sidebar {
   width: 240px;
   flex-shrink: 0;
+  height: 100vh;
+  position: sticky;
+  top: 0;
   background: var(--panel);
   border-right: 1px solid var(--border);
   display: flex;
   flex-direction: column;
   padding: 20px 14px;
+  overflow: hidden;
 }
-.brand { display: flex; align-items: center; gap: 10px; padding: 6px 10px 22px; }
+.brand { display: flex; align-items: center; gap: 10px; padding: 6px 10px 22px; flex-shrink: 0; }
 .brand-mark {
   width: 30px; height: 30px; border-radius: 8px;
-  background: linear-gradient(135deg, var(--accent), var(--accent-2));
-  color: white; display: flex; align-items: center; justify-content: center;
-  font-size: 16px;
+  display: block; object-fit: cover;
 }
 .brand-name { font-weight: 700; font-size: 16px; letter-spacing: -0.01em; }
 
-.nav { display: flex; flex-direction: column; gap: 3px; flex: 1; }
+.nav { display: flex; flex-direction: column; gap: 3px; flex: 1; min-height: 0; overflow-y: auto; }
 .nav-item {
   display: flex; align-items: center; gap: 10px;
   background: none; border: none; color: var(--muted);
@@ -75,7 +78,7 @@ code, .inline { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, mono
 .nav-item.active { background: var(--sidebar-active); color: var(--accent-2); font-weight: 600; }
 .nav-icon { width: 18px; text-align: center; opacity: .9; }
 
-.sidebar-footer { padding-top: 14px; border-top: 1px solid var(--border); margin-top: 10px; }
+.sidebar-footer { padding-top: 14px; border-top: 1px solid var(--border); margin-top: 10px; flex-shrink: 0; }
 .theme-toggle {
   width: 100%; display: flex; align-items: center; gap: 8px;
   background: var(--panel-2); border: 1px solid var(--border); color: var(--text);
@@ -280,6 +283,22 @@ code, .inline { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, mono
 }
 .env-keys { display: flex; flex-wrap: wrap; gap: 6px; }
 .env-key { background: var(--panel-2); border: 1px solid var(--border); border-radius: 6px; padding: 3px 8px; font-size: 11px; font-family: ui-monospace, monospace; }
+
+/* Git commit / push in project modal */
+.git-actions { margin-top: 12px; display: flex; flex-direction: column; gap: 10px; }
+.git-files { max-height: 120px; overflow-y: auto; font-family: ui-monospace, monospace; font-size: 11px; }
+.git-file { display: flex; gap: 8px; padding: 3px 0; color: var(--muted); }
+.git-file .code { color: var(--accent-2); width: 18px; flex-shrink: 0; }
+.git-msg {
+  width: 100%; min-height: 68px; resize: vertical;
+  background: var(--panel-2); border: 1px solid var(--border); color: var(--text);
+  border-radius: 8px; padding: 8px 10px; font-size: 12.5px; font-family: inherit;
+}
+.git-msg:focus { outline: none; border-color: var(--accent-2); }
+.git-btns { display: flex; gap: 8px; flex-wrap: wrap; }
+.git-banner { font-size: 12.5px; padding: 8px 10px; border-radius: 8px; }
+.git-banner.ok { background: color-mix(in srgb, var(--good) 14%, transparent); color: var(--good); }
+.git-banner.err { background: color-mix(in srgb, var(--bad) 14%, transparent); color: var(--bad); }
 
 /* Stop server */
 .stop-btn { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 40%, var(--border)); }

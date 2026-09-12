@@ -2,6 +2,7 @@
 
 const $ = (sel) => document.querySelector(sel);
 const $$ = (sel) => Array.from(document.querySelectorAll(sel));
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
 async function api(path, opts) {
   const res = await fetch(path, opts);
@@ -427,7 +428,7 @@ async function loadProjects() {
 }
 
 // ---- Project detail modal ----
-async function openProjectModal(slug) {
+async function openProjectModal(slug, notice) {
   const overlay = $("#project-modal");
   const title = $("#modal-title");
   const body = $("#modal-body");
@@ -484,6 +485,7 @@ async function openProjectModal(slug) {
         html += row("Last commit", d.lastPush.lastPushSubject);
         html += row("Ahead / behind", `${d.lastPush.ahead ?? "?"} / ${d.lastPush.behind ?? "?"}`);
         html += row("Working tree", d.lastPush.dirty ? `<span class="status-pill inactive">dirty</span>` : `<span class="status-pill active">clean</span>`);
+        html += `<div id="git-actions-slot"></div>`;
       } else {
         html += row("Status", d.lastPush.error || "no repo configured");
       }
@@ -497,10 +499,100 @@ async function openProjectModal(slug) {
     }
 
     body.innerHTML = html;
+    if (d.lastPush && d.lastPush.ok) bindGitActions(d.slug, notice);
   } catch (e) {
     title.textContent = "Error";
     body.innerHTML = `<div class="muted">${e.message}</div>`;
   }
+}
+
+function renderGitActions(slug, git) {
+  const dirty = !!(git && git.dirty);
+  const ahead = !!(git && git.ahead > 0);
+  const files = (git && git.files) || [];
+  const fileList = files.length
+    ? `<div class="git-files">${files
+        .map((f) => `<div class="git-file"><span class="code">${esc(f.status)}</span><span>${esc(f.path)}</span></div>`)
+        .join("")}</div>`
+    : "";
+  const hint = dirty
+    ? "Leave the message blank to auto-generate one from the changed files."
+    : ahead
+      ? `${git.ahead} commit(s) ahead of remote — ready to push.`
+      : "Working tree clean — nothing to commit.";
+  return `
+    <div class="git-actions">
+      ${fileList}
+      <textarea class="git-msg" id="git-msg" placeholder="Commit message (optional — auto-generated if blank)" ${dirty ? "" : "disabled"}></textarea>
+      <div class="muted small-label">${hint}</div>
+      <div class="git-btns">
+        <button class="mini-btn" id="git-commit-btn" type="button" ${dirty ? "" : "disabled"}>Commit</button>
+        <button class="mini-btn" id="git-push-btn" type="button" ${ahead ? "" : "disabled"}>Push</button>
+        <button class="mini-btn primary" id="git-both-btn" type="button" ${dirty ? "" : "disabled"}>Commit &amp; push</button>
+      </div>
+      <div id="git-result"></div>
+    </div>`;
+}
+
+function bindGitActions(slug, notice) {
+  const slot = $("#git-actions-slot");
+  if (!slot) return;
+  slot.innerHTML = `<div class="muted small-label">Checking working tree...</div>`;
+
+  const banner = (ok, text) => {
+    const el = $("#git-result");
+    if (!el) return;
+    el.className = "git-banner " + (ok ? "ok" : "err");
+    el.textContent = text;
+  };
+
+  const refresh = (ok, text) => openProjectModal(slug, { ok, text });
+
+  get(`/api/git-status?slug=${encodeURIComponent(slug)}`)
+    .then((git) => {
+      slot.innerHTML = renderGitActions(slug, git);
+      if (notice) banner(notice.ok, notice.text);
+
+      const msgEl = $("#git-msg");
+      const commitBtn = $("#git-commit-btn");
+      const pushBtn = $("#git-push-btn");
+      const bothBtn = $("#git-both-btn");
+
+      if (commitBtn && !commitBtn.disabled) {
+        commitBtn.dataset.loadingLabel = "Committing...";
+        commitBtn.addEventListener(
+          "click",
+          withLoading(commitBtn, async () => {
+            const result = await post("/api/commit", { slug, message: msgEl.value });
+            await refresh(true, `Committed ${result.hash}: ${result.subject}`);
+          })
+        );
+      }
+      if (pushBtn && !pushBtn.disabled) {
+        pushBtn.dataset.loadingLabel = "Pushing...";
+        pushBtn.addEventListener(
+          "click",
+          withLoading(pushBtn, async () => {
+            const result = await post("/api/push", { slug });
+            await refresh(true, result.message || "Pushed");
+          })
+        );
+      }
+      if (bothBtn && !bothBtn.disabled) {
+        bothBtn.dataset.loadingLabel = "Working...";
+        bothBtn.addEventListener(
+          "click",
+          withLoading(bothBtn, async () => {
+            const committed = await post("/api/commit", { slug, message: msgEl.value });
+            const pushed = await post("/api/push", { slug });
+            await refresh(true, `Committed ${committed.hash} and ${pushed.message || "pushed"}`);
+          })
+        );
+      }
+    })
+    .catch((e) => {
+      slot.innerHTML = `<div class="git-banner err">${esc(e.message)}</div>`;
+    });
 }
 
 function initModal() {

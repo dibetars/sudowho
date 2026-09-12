@@ -175,6 +175,51 @@ def _git(repo: str, *args: str) -> str | None:
         return None
 
 
+def _git_run(repo: str, *args: str, timeout: int = 60) -> tuple[bool, str, str]:
+    """Run git and return (ok, stdout, stderr) so callers can surface errors."""
+    import subprocess
+
+    try:
+        proc = subprocess.run(
+            ["git", "-C", repo, *args],
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+        return proc.returncode == 0, (proc.stdout or "").strip(), (proc.stderr or "").strip()
+    except subprocess.TimeoutExpired:
+        return False, "", "timed out"
+    except FileNotFoundError:
+        return False, "", "git not found"
+    except Exception as e:  # noqa: BLE001
+        return False, "", str(e)
+
+
+def _project_repo(slug_or_name: str) -> tuple[str, str]:
+    slug, proj = resolve_project(slug_or_name)
+    repo = proj.get("repo")
+    if not repo or not Path(repo).exists() or not in_git_repo(repo):
+        raise SystemExit(f"no git repo configured for {slug}")
+    return slug, repo
+
+
+def _auto_commit_message(repo: str) -> str:
+    status = _git(repo, "diff", "--cached", "--name-status") or ""
+    files = [line.split("\t")[-1] for line in status.splitlines() if line.strip()]
+    if not files:
+        return "chore: update"
+    if len(files) == 1:
+        return f"chore: update {files[0]}"
+    areas: list[str] = []
+    for path in files:
+        top = path.split("/", 1)[0]
+        if top and top not in areas:
+            areas.append(top)
+        if len(areas) >= 3:
+            break
+    return f"chore: update {', '.join(areas) if areas else f'{len(files)} files'}"
+
+
 # --------------------------------------------------------------------------
 # Identity switching
 # --------------------------------------------------------------------------
@@ -675,6 +720,66 @@ def cmd_project_detail(slug_or_name: str) -> dict:
 
 
 # --------------------------------------------------------------------------
+# Git commit / push for a configured project repo
+# --------------------------------------------------------------------------
+
+def cmd_git_status(slug_or_name: str) -> dict:
+    slug, repo = _project_repo(slug_or_name)
+    info = _last_push_info(repo)
+    porcelain = _git(repo, "status", "--porcelain") or ""
+    files = []
+    for line in porcelain.splitlines():
+        files.append({"status": line[:2].strip(), "path": line[3:]})
+    return {
+        "slug": slug,
+        "ok": True,
+        "branch": info.get("branch"),
+        "dirty": bool(info.get("dirty")),
+        "ahead": info.get("ahead"),
+        "behind": info.get("behind"),
+        "files": files,
+    }
+
+
+def cmd_commit(slug_or_name: str, message: str | None = None) -> dict:
+    slug, repo = _project_repo(slug_or_name)
+    ok, _, err = _git_run(repo, "add", "-A")
+    if not ok:
+        return {"ok": False, "slug": slug, "error": err or "git add failed"}
+    clean, _, _ = _git_run(repo, "diff", "--cached", "--quiet")
+    if clean:
+        return {"ok": False, "slug": slug, "error": "nothing to commit"}
+    msg = (message or "").strip() or _auto_commit_message(repo)
+    ok, out, err = _git_run(repo, "commit", "-m", msg)
+    if not ok:
+        return {"ok": False, "slug": slug, "error": err or out or "commit failed"}
+    return {
+        "ok": True,
+        "slug": slug,
+        "hash": _git(repo, "rev-parse", "--short", "HEAD"),
+        "message": msg,
+        "subject": msg.splitlines()[0],
+    }
+
+
+def cmd_push(slug_or_name: str) -> dict:
+    slug, repo = _project_repo(slug_or_name)
+    upstream = _git(repo, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}")
+    if upstream:
+        ok, out, err = _git_run(repo, "push", timeout=90)
+    else:
+        remotes = _git(repo, "remote")
+        if not remotes:
+            return {"ok": False, "slug": slug, "error": "no git remote configured"}
+        remote = remotes.splitlines()[0]
+        branch = _git(repo, "rev-parse", "--abbrev-ref", "HEAD") or "HEAD"
+        ok, out, err = _git_run(repo, "push", "-u", remote, branch, timeout=90)
+    if not ok:
+        return {"ok": False, "slug": slug, "error": err or out or "push failed"}
+    return {"ok": True, "slug": slug, "message": out or err or "pushed"}
+
+
+# --------------------------------------------------------------------------
 # Setup wizard
 # --------------------------------------------------------------------------
 
@@ -763,6 +868,13 @@ def main(argv: list[str]) -> None:
         out(cmd_status_breakdown())
     elif cmd == "project-detail":
         out(cmd_project_detail(rest[0]))
+    elif cmd == "git-status":
+        out(cmd_git_status(rest[0]))
+    elif cmd == "commit":
+        message = rest[1] if len(rest) > 1 else None
+        out(cmd_commit(rest[0], message))
+    elif cmd == "push":
+        out(cmd_push(rest[0]))
     elif cmd == "last-push":
         out(cmd_last_push(fetch="--fetch" in rest))
     elif cmd == "env-show":

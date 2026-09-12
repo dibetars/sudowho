@@ -1,3 +1,4 @@
+import Image from "next/image";
 import Link from "next/link";
 import { SignupForm } from "@/components/signup-form";
 
@@ -47,6 +48,14 @@ export default function Home() {
             <span className="h-1.5 w-1.5 rounded-full bg-green-500" />
             100% local — nothing ever leaves your machine
           </div>
+          <Image
+            src="/sudowho_icon.png"
+            alt="sudowho"
+            width={72}
+            height={72}
+            className="mx-auto mb-6 rounded-[18px] shadow-lg"
+            priority
+          />
           <h1 className="text-4xl font-bold tracking-tight sm:text-6xl">
             One command to switch{" "}
             <span className="bg-gradient-to-r from-accent to-accent-2 bg-clip-text text-transparent">

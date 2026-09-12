@@ -1,0 +1,15 @@
+<svg width="32" height="32" viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="sudowho">
+  <defs>
+    <linearGradient id="sudowhoGrad" x1="0" y1="0" x2="32" y2="32" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#7c3aed"/>
+      <stop offset="1" stop-color="#a78bfa"/>
+    </linearGradient>
+  </defs>
+  <rect width="32" height="32" rx="8" fill="url(#sudowhoGrad)"/>
+  <g fill="none" stroke="#ffffff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M9 12.5h13.5"/>
+    <path d="M19 8.5l3.5 4-3.5 4"/>
+    <path d="M23 19.5H9.5"/>
+    <path d="M13 15.5l-3.5 4 3.5 4"/>
+  </g>
+</svg>

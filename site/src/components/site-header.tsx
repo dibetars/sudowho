@@ -1,3 +1,4 @@
+import Image from "next/image";
 import Link from "next/link";
 import { ThemeToggle } from "./theme-toggle";
 
@@ -6,9 +7,7 @@ export function SiteHeader() {
     <header className="sticky top-0 z-40 border-b border-border bg-background/80 backdrop-blur">
       <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-4">
         <Link href="/" className="flex items-center gap-2 font-bold tracking-tight">
-          <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-gradient-to-br from-accent to-accent-2 text-white text-sm">
-            ⌁
-          </span>
+          <Image src="/sudowho_icon.png" alt="sudowho" width={28} height={28} className="h-7 w-7 rounded-lg" />
           sudowho
         </Link>
         <nav className="hidden items-center gap-7 text-sm text-muted sm:flex">

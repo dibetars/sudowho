@@ -56,6 +56,8 @@ Projects / compute (Supabase)
   sudowho heartbeat-cron-install
   sudowho heartbeat-cron-uninstall
   sudowho last-push [--fetch]
+  sudowho commit <project> [-m "msg"]   Commit (auto-message if -m omitted)
+  sudowho push <project>                Push the project's configured repo
 
 Env vault
   sudowho env <project>
@@ -235,6 +237,20 @@ for name,p in core.load_cfg()['profiles'].items():
     heartbeat) shift; py heartbeat "$@" ;;
     heartbeat-status) py heartbeat-status ;;
     last-push) shift; py last-push "$@" ;;
+    commit)
+      shift
+      proj="${1:-}"; shift || true
+      [[ -n "$proj" ]] || die "usage: sudowho commit <project> [-m msg]"
+      msg=""
+      while [[ $# -gt 0 ]]; do
+        case "$1" in
+          -m|--message) msg="$2"; shift 2 ;;
+          *) shift ;;
+        esac
+      done
+      py commit "$proj" "$msg"
+      ;;
+    push) shift; py push "$1" ;;
     activity-heatmap) shift; py activity-heatmap "$@" ;;
     status-breakdown) py status-breakdown ;;
     project) shift; py project-detail "$@" ;;

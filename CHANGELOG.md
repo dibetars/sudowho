@@ -55,6 +55,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   No more manually running `vercel login` + `sudowho vercel-save`.
 - `sudowho vercel-login <profile>` CLI command — the terminal equivalent
   of the dashboard button.
+- Product logos (`sudowho_icon`, `sudowho_wordmark`, `sudowho_fulllockup`,
+  `sudowho_favicon`) wired into the marketing site header/hero/favicon
+  and the local dashboard sidebar + tab icon.
+- Project detail modal: Commit, Push, and Commit & push against the
+  project's configured repo. Blank message auto-generates one from the
+  changed files. Also available as `sudowho commit <project>` /
+  `sudowho push <project>`.
 
 ### Changed
 - Overview activity heatmap: removed the project/range filter controls
@@ -76,6 +83,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   Heartbeat, Activity, project detail modal) now renders shimmer skeleton
   placeholders immediately on load/tab-switch/refresh instead of a blank
   or stale table while data is in flight.
+
+### Fixed
+- Dashboard sidebar nav + footer (theme toggle, Stop server) no longer
+  scroll off-screen: the sidebar is sticky to the viewport and the nav
+  list scrolls internally if the window is short.
 
 ## [0.1.0] - 2026-09-12
 

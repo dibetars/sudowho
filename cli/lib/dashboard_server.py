@@ -203,6 +203,12 @@ class Handler(BaseHTTPRequestHandler):
                 else:
                     data, hit = _cached(f"project:{slug}", 20, lambda: core.cmd_project_detail(slug), fresh)
                     self._json(data, cache_hit=hit)
+            elif path == "/api/git-status":
+                slug = (qs.get("slug") or [None])[0]
+                if not slug:
+                    self._json({"error": "missing slug"}, 400)
+                else:
+                    self._json(core.cmd_git_status(slug))
             elif path == "/api/state":
                 self._json(core.load_state())
             elif path == "/api/vercel-login-status":
@@ -249,6 +255,22 @@ class Handler(BaseHTTPRequestHandler):
                 result = core.cmd_heartbeat(body.get("slug"))
                 _invalidate("project:")  # heartbeat-status itself isn't cached
                 self._json(result)
+            elif path == "/api/commit":
+                slug = body.get("slug")
+                if not slug:
+                    self._json({"error": "missing slug"}, 400)
+                else:
+                    result = core.cmd_commit(slug, body.get("message"))
+                    _invalidate("last-push", "heatmap", "project:")
+                    self._json(result, status=200 if result.get("ok") else 400)
+            elif path == "/api/push":
+                slug = body.get("slug")
+                if not slug:
+                    self._json({"error": "missing slug"}, 400)
+                else:
+                    result = core.cmd_push(slug)
+                    _invalidate("last-push", "heatmap", "project:")
+                    self._json(result, status=200 if result.get("ok") else 400)
             elif path == "/api/vercel-login":
                 profile = body.get("profile")
                 if not profile:
