@@ -38,6 +38,7 @@ Identity
   sudowho status                        Show current identities
   sudowho list                          List configured profiles
   sudowho vercel-save <profile>         Save current Vercel login
+  sudowho vercel-login <profile>        Log into Vercel, then save it
 
 Projects / compute (Supabase)
   sudowho use <project> [--pause-others] [--env]
@@ -215,6 +216,14 @@ for name,p in core.load_cfg()['profiles'].items():
       echo "Vercel:"; vercel whoami 2>/dev/null | sed 's/^/  user: /' || echo "  (not logged in)"
       ;;
     vercel-save) shift; py vercel-save "$1" ;;
+    vercel-login)
+      shift
+      profile="${1:-}"
+      [[ -n "$profile" ]] || die "usage: sudowho vercel-login <profile>"
+      need_cmd vercel
+      vercel login
+      py vercel-save "$profile"
+      ;;
     projects) py projects ;;
     accounts) py accounts ;;
     supabase-login) shift; py supabase-login "$@" ;;

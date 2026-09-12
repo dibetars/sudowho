@@ -260,6 +260,10 @@ async function loadIdentity() {
         <div class="p-detail">${p.git?.name || ""} &lt;${p.git?.email || ""}&gt;</div>
         <div class="p-detail">gh: ${p.gh || "-"}</div>
         <div class="p-detail">vercel: ${p.vercel?.preferredScope || "-"}</div>
+        <div class="vercel-reauth-row">
+          <button class="mini-btn vercel-reauth-btn" data-profile="${name}" type="button">Reauthenticate Vercel</button>
+          <div class="vercel-reauth-status muted small-label"></div>
+        </div>
       </div>`
     )
     .join("");
@@ -272,21 +276,102 @@ async function loadIdentity() {
         const profile = card.dataset.profile;
         const resultEl = $("#switch-result");
         resultEl.classList.remove("hidden");
-        resultEl.textContent = `Switching to ${profile}...`;
+        resultEl.innerHTML = `Switching to ${profile}...`;
         try {
           const result = await post("/api/switch", { profile });
-          let text = JSON.stringify(result, null, 2);
-          if (result.vercelError) {
-            text += `\n\n⚠ Vercel: ${result.vercelError}`;
-          }
-          resultEl.textContent = text;
+          renderSwitchResult(result);
         } catch (e) {
-          resultEl.textContent = `Error: ${e.message}`;
+          resultEl.innerHTML = `Error: ${e.message}`;
           throw e;
         }
       })
     );
   });
+
+  $$(".vercel-reauth-btn").forEach((btn) => {
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const profile = btn.dataset.profile;
+      const statusEl = btn.parentElement.querySelector(".vercel-reauth-status");
+      startVercelReauth(profile, statusEl, btn);
+    });
+  });
+}
+
+// Renders the JSON result of an identity switch, plus a "Reauthenticate
+// Vercel" action inline if the switch reported an expired/missing session.
+function renderSwitchResult(result) {
+  const resultEl = $("#switch-result");
+  const pre = document.createElement("pre");
+  pre.style.margin = "0";
+  pre.textContent = JSON.stringify(result, null, 2);
+  resultEl.innerHTML = "";
+  resultEl.appendChild(pre);
+
+  if (result.vercelError) {
+    const row = document.createElement("div");
+    row.className = "vercel-reauth-row";
+    row.innerHTML = `
+      <button class="mini-btn vercel-reauth-btn" type="button">Reauthenticate Vercel</button>
+      <div class="vercel-reauth-status muted small-label"></div>
+    `;
+    resultEl.appendChild(row);
+    const btn = row.querySelector(".vercel-reauth-btn");
+    const statusEl = row.querySelector(".vercel-reauth-status");
+    btn.addEventListener("click", () => startVercelReauth(result.profile, statusEl, btn));
+  }
+}
+
+// Kicks off the Vercel device-code login flow for a profile, opens the
+// approval URL, and polls until it's confirmed (or fails/times out).
+async function startVercelReauth(profile, statusEl, btn) {
+  btn.disabled = true;
+  btn.textContent = "Starting...";
+  statusEl.textContent = "";
+
+  try {
+    await post("/api/vercel-login", { profile });
+  } catch (e) {
+    statusEl.textContent = `Error: ${e.message}`;
+    btn.disabled = false;
+    btn.textContent = "Reauthenticate Vercel";
+    return;
+  }
+
+  let opened = false;
+  const poll = async () => {
+    let s;
+    try {
+      s = await get(`/api/vercel-login-status?profile=${encodeURIComponent(profile)}`);
+    } catch (e) {
+      statusEl.textContent = `Error: ${e.message}`;
+      btn.disabled = false;
+      btn.textContent = "Reauthenticate Vercel";
+      return;
+    }
+
+    if (s.status === "waiting" && s.url) {
+      if (!opened) {
+        opened = true;
+        window.open(s.url, "_blank");
+      }
+      statusEl.innerHTML = `Waiting for approval — <a href="${s.url}" target="_blank" class="text-link">open link</a> if it didn't open automatically.`;
+      btn.textContent = "Waiting for approval...";
+      setTimeout(poll, 1500);
+    } else if (s.status === "done") {
+      statusEl.textContent = `✓ Signed in as ${s.message}`;
+      btn.disabled = false;
+      btn.textContent = "Reauthenticate Vercel";
+    } else if (s.status === "error") {
+      statusEl.textContent = `✗ ${s.message}`;
+      btn.disabled = false;
+      btn.textContent = "Reauthenticate Vercel";
+    } else {
+      statusEl.textContent = "Starting Vercel login...";
+      setTimeout(poll, 1000);
+    }
+  };
+  poll();
 }
 
 // ---- Projects ----

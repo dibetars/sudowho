@@ -142,6 +142,9 @@ code, .inline { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, mono
 }
 .profile-card .p-name { font-weight: 700; margin-bottom: 6px; }
 .profile-card .p-detail { font-size: 12px; color: var(--muted); }
+.vercel-reauth-row { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border); }
+.vercel-reauth-status { margin-top: 6px; min-height: 14px; }
+.vercel-reauth-status a.text-link { color: var(--accent-2); }
 
 .result { margin-top: 16px; white-space: pre-wrap; font-family: ui-monospace, monospace; font-size: 12.5px; }
 .result.hidden { display: none; }

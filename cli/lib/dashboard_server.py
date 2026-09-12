@@ -10,6 +10,8 @@ was already part of the CLI.
 from __future__ import annotations
 
 import json
+import re
+import subprocess
 import sys
 import threading
 import webbrowser
@@ -21,6 +23,63 @@ sys.path.insert(0, str(Path(__file__).parent))
 import core  # noqa: E402
 
 ASSETS_DIR = Path(__file__).parent.parent / "dashboard"
+
+# ---------------------------------------------------------------------------
+# Vercel reauthentication (device-code flow, run in a background thread so
+# the dashboard can poll for the approval URL + completion without blocking).
+# ---------------------------------------------------------------------------
+
+_VERCEL_DEVICE_URL_RE = re.compile(r"https://vercel\.com/oauth/device\S*")
+_vercel_login_state: dict[str, dict] = {}
+_vercel_login_lock = threading.Lock()
+
+
+def _run_vercel_login(profile: str) -> None:
+    state = {"status": "starting", "url": None, "message": None}
+    with _vercel_login_lock:
+        _vercel_login_state[profile] = state
+
+    try:
+        proc = subprocess.Popen(
+            ["vercel", "login", "--non-interactive"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1,
+        )
+        for line in proc.stdout:
+            match = _VERCEL_DEVICE_URL_RE.search(line)
+            if match and not state["url"]:
+                state["url"] = match.group(0)
+                state["status"] = "waiting"
+        proc.wait(timeout=180)
+
+        if proc.returncode == 0:
+            cli_dir = Path.home() / "Library/Application Support/com.vercel.cli"
+            dest_dir = core.SECRETS / "vercel" / profile
+            dest_dir.mkdir(parents=True, exist_ok=True)
+            auth = cli_dir / "auth.json"
+            if auth.exists():
+                (dest_dir / "auth.json").write_text(auth.read_text())
+                (dest_dir / "auth.json").chmod(0o600)
+            cfg_file = cli_dir / "config.json"
+            if cfg_file.exists():
+                (dest_dir / "config.json").write_text(cfg_file.read_text())
+            who = subprocess.run(["vercel", "whoami"], capture_output=True, text=True).stdout.strip()
+            state["status"] = "done"
+            state["message"] = who or "Signed in"
+        else:
+            state["status"] = "error"
+            state["message"] = "vercel login exited without completing (cancelled?)"
+    except subprocess.TimeoutExpired:
+        state["status"] = "error"
+        state["message"] = "Timed out waiting for approval (3 min)"
+    except FileNotFoundError:
+        state["status"] = "error"
+        state["message"] = "vercel CLI not found — install it first (npm i -g vercel)"
+    except Exception as e:  # noqa: BLE001
+        state["status"] = "error"
+        state["message"] = str(e)
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -92,6 +151,10 @@ class Handler(BaseHTTPRequestHandler):
                     self._json(core.cmd_project_detail(slug))
             elif path == "/api/state":
                 self._json(core.load_state())
+            elif path == "/api/vercel-login-status":
+                profile = (qs.get("profile") or [None])[0]
+                with _vercel_login_lock:
+                    self._json(_vercel_login_state.get(profile, {"status": "idle", "url": None, "message": None}))
             else:
                 self._static(path)
         except SystemExit as e:
@@ -122,6 +185,17 @@ class Handler(BaseHTTPRequestHandler):
                 self._json(core.cmd_pause_idle())
             elif path == "/api/heartbeat":
                 self._json(core.cmd_heartbeat(body.get("slug")))
+            elif path == "/api/vercel-login":
+                profile = body.get("profile")
+                if not profile:
+                    self._json({"error": "missing profile"}, 400)
+                else:
+                    with _vercel_login_lock:
+                        existing = _vercel_login_state.get(profile)
+                        already_running = existing and existing["status"] in ("starting", "waiting")
+                    if not already_running:
+                        threading.Thread(target=_run_vercel_login, args=(profile,), daemon=True).start()
+                    self._json({"ok": True, "status": "starting"})
             elif path == "/api/shutdown":
                 self._json({"ok": True, "message": "Shutting down..."})
                 # Shut down from a separate thread — calling server.shutdown()
