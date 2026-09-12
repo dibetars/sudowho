@@ -56,6 +56,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - `sudowho vercel-login <profile>` CLI command — the terminal equivalent
   of the dashboard button.
 
+### Changed
+- Overview activity heatmap: removed the project/range filter controls
+  in favor of a simple, fixed 70-day/all-projects view; added month
+  labels above the columns (GitHub-contribution-graph style).
+- Project detail modal redesigned: colored section icons, a live status
+  pill next to the project name, and a progress bar for heartbeat
+  days-left matching the Overview "projects at risk" styling.
+
 ## [0.1.0] - 2026-09-12
 
 ### Added
