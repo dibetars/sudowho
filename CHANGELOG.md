@@ -47,6 +47,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   `null`, since Vercel CLI session tokens expire ~2 hours after
   `vercel login` and there's no way to refresh them automatically.
 
+### Added
+- One-click "Reauthenticate Vercel" — a button on each profile card
+  (and inline on the switch result whenever `vercelError` shows up) that
+  starts Vercel's device-code login flow, auto-opens the approval URL,
+  polls until confirmed, and saves the refreshed session automatically.
+  No more manually running `vercel login` + `sudowho vercel-save`.
+- `sudowho vercel-login <profile>` CLI command — the terminal equivalent
+  of the dashboard button.
+
 ## [0.1.0] - 2026-09-12
 
 ### Added
