@@ -88,6 +88,10 @@ config, the secrets — runs and stays on your machine. The only network calls
 sudowho makes are to the Supabase Management API (to wake/pause *your own*
 projects) and your own git remotes.
 
+## Changelog
+
+See [CHANGELOG.md](./CHANGELOG.md) for a history of changes.
+
 ## License
 
 MIT — see [LICENSE](./LICENSE).
