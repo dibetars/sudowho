@@ -203,19 +203,39 @@ def cmd_switch_identity(profile: str, repo: str = ".") -> dict:
     vercel = p.get("vercel") or {}
     scope = vercel.get("preferredScope")
     vercel_dir = SECRETS / "vercel" / profile
+    if not (vercel_dir / "auth.json").exists():
+        # Back-compat: pre-public-release installs stored this under
+        # ROOT/vercel/<profile>/ instead of ROOT/secrets/vercel/<profile>/.
+        legacy = ROOT / "vercel" / profile
+        if (legacy / "auth.json").exists():
+            vercel_dir = legacy
     cli_dir = Path.home() / "Library/Application Support/com.vercel.cli"
     if (vercel_dir / "auth.json").exists():
         cli_dir.mkdir(parents=True, exist_ok=True)
         (cli_dir / "auth.json").write_text((vercel_dir / "auth.json").read_text())
         if (vercel_dir / "config.json").exists():
             (cli_dir / "config.json").write_text((vercel_dir / "config.json").read_text())
-        who = subprocess.run(["vercel", "whoami"], capture_output=True, text=True).stdout.strip()
-        result["vercel"] = who or None
-        if scope and who:
-            subprocess.run(["vercel", "teams", "switch", scope], capture_output=True, text=True)
-            result["vercelScope"] = scope
+        check = subprocess.run(["vercel", "whoami"], capture_output=True, text=True)
+        who = check.stdout.strip()
+        if who:
+            result["vercel"] = who
+            if scope:
+                subprocess.run(["vercel", "teams", "switch", scope], capture_output=True, text=True)
+                result["vercelScope"] = scope
+        else:
+            # Vercel CLI session tokens expire (~2h after `vercel login`).
+            # Distinguish that from "never saved" so it's obvious what to do.
+            result["vercel"] = None
+            stderr = (check.stderr or "").strip()
+            result["vercelError"] = (
+                "saved Vercel session expired — run `vercel login` then "
+                f"`sudowho vercel-save {profile}` to refresh it"
+                if "not valid" in stderr.lower() or "no existing credentials" in stderr.lower()
+                else stderr or "vercel whoami failed"
+            )
     else:
         result["vercel"] = None
+        result["vercelError"] = f"no saved Vercel login for '{profile}' — run `vercel login` then `sudowho vercel-save {profile}`"
 
     return result
 

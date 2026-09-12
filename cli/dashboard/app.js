@@ -275,7 +275,11 @@ async function loadIdentity() {
         resultEl.textContent = `Switching to ${profile}...`;
         try {
           const result = await post("/api/switch", { profile });
-          resultEl.textContent = JSON.stringify(result, null, 2);
+          let text = JSON.stringify(result, null, 2);
+          if (result.vercelError) {
+            text += `\n\n⚠ Vercel: ${result.vercelError}`;
+          }
+          resultEl.textContent = text;
         } catch (e) {
           resultEl.textContent = `Error: ${e.message}`;
           throw e;
