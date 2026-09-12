@@ -205,6 +205,11 @@ code, .inline { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, mono
 .segmented-btn.active { background: var(--accent); color: white; }
 
 .heatmap-card { overflow-x: auto; }
+.heatmap-months { display: flex; gap: 3px; margin-top: 4px; }
+.heatmap-month-label {
+  flex: 1; font-size: 11px; color: var(--muted); white-space: nowrap;
+  overflow: visible; position: relative;
+}
 .heatmap { display: flex; gap: 3px; overflow-x: auto; padding: 4px 0; }
 .heatmap-week { display: flex; flex-direction: column; gap: 3px; flex: 1; }
 .heatmap-day {
@@ -237,15 +242,24 @@ code, .inline { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, mono
   background: var(--panel); border: 1px solid var(--border); border-radius: 14px;
   width: min(560px, 92vw); max-height: 85vh; overflow-y: auto; padding: 22px 24px;
 }
-.modal-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
-.modal-header h3 { margin: 0; font-size: 17px; }
+.modal-header { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 16px; }
+.modal-title-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.modal-header h3 { margin: 0; font-size: 19px; }
 .modal-body { font-size: 13px; }
-.detail-row { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid var(--border); gap: 16px; }
+.detail-row { display: flex; justify-content: space-between; align-items: center; padding: 9px 0; border-bottom: 1px solid var(--border); gap: 16px; }
 .detail-row:last-child { border-bottom: none; }
 .detail-row .k { color: var(--muted); flex-shrink: 0; }
 .detail-row .v { text-align: right; font-family: ui-monospace, monospace; font-size: 12px; word-break: break-all; }
-.detail-section-title { margin: 18px 0 6px; font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
+.detail-section-title {
+  margin: 20px 0 8px; font-size: 11px; text-transform: uppercase; letter-spacing: .06em;
+  color: var(--accent-2); font-weight: 700; display: flex; align-items: center; gap: 7px;
+  padding-bottom: 6px; border-bottom: 1px solid var(--border);
+}
 .detail-section-title:first-child { margin-top: 0; }
+.detail-section-icon {
+  display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px;
+  border-radius: 5px; background: var(--accent-soft); color: var(--accent-2); font-size: 11px;
+}
 .env-keys { display: flex; flex-wrap: wrap; gap: 6px; }
 .env-key { background: var(--panel-2); border: 1px solid var(--border); border-radius: 6px; padding: 3px 8px; font-size: 11px; font-family: ui-monospace, monospace; }
 

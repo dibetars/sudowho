@@ -97,18 +97,11 @@
         </div>
 
         <div class="card heatmap-card" style="margin-top:16px;">
-          <div class="card-header wrap">
+          <div class="card-header">
             <h3>Activity</h3>
-            <div class="heatmap-controls">
-              <select id="heatmap-project" class="select"></select>
-              <div class="segmented" id="heatmap-range">
-                <button class="segmented-btn active" data-days="30">30d</button>
-                <button class="segmented-btn" data-days="60">60d</button>
-                <button class="segmented-btn" data-days="3650">All time</button>
-              </div>
-              <span class="muted small-label" id="heatmap-total"></span>
-            </div>
+            <span class="muted small-label" id="heatmap-total"></span>
           </div>
+          <div id="heatmap-months" class="heatmap-months"></div>
           <div id="heatmap" class="heatmap heatmap-full"></div>
         </div>
 
@@ -208,7 +201,10 @@
   <div id="project-modal" class="modal-overlay hidden">
     <div class="modal">
       <div class="modal-header">
-        <h3 id="modal-title">Project</h3>
+        <div class="modal-title-row">
+          <h3 id="modal-title">Project</h3>
+          <span id="modal-title-pill"></span>
+        </div>
         <button id="modal-close" class="mini-btn">✕</button>
       </div>
       <div id="modal-body" class="modal-body"></div>

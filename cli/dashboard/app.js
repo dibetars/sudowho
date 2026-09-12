@@ -88,16 +88,15 @@ function statusPill(status) {
 
 // ---- Overview ----
 const OVERVIEW_LIMIT = 5;
-const heatmapState = { project: "all", days: 30 };
-let overviewProjects = [];
+const HEATMAP_DAYS = 70; // ~10 weeks, matches the reference design
 
 async function loadOverview() {
-  const [compute, heartbeats, profiles, breakdown, projects] = await Promise.all([
+  const [compute, heartbeats, profiles, breakdown, heatmap] = await Promise.all([
     get("/api/compute-status"),
     get("/api/heartbeat-status"),
     get("/api/profiles"),
     get("/api/status-breakdown"),
-    get("/api/projects"),
+    get(`/api/activity-heatmap?days=${HEATMAP_DAYS}`),
   ]);
   const active = compute.filter((c) => (c.status || "").includes("ACTIVE")).length;
   const paused = compute.filter((c) => (c.status || "").includes("INACTIVE")).length;
@@ -126,27 +125,6 @@ async function loadOverview() {
 
   renderDonut(breakdown);
   renderRiskList(heartbeats);
-
-  overviewProjects = Object.entries(projects).map(([slug, p]) => ({ slug, name: p.name }));
-  populateHeatmapProjectSelect();
-  await refreshHeatmap();
-}
-
-function populateHeatmapProjectSelect() {
-  const select = $("#heatmap-project");
-  if (!select || select.dataset.populated) return;
-  select.innerHTML =
-    `<option value="all">All projects</option>` +
-    overviewProjects.map((p) => `<option value="${p.slug}">${p.name}</option>`).join("");
-  select.dataset.populated = "1";
-  select.addEventListener("change", () => {
-    heatmapState.project = select.value;
-    refreshHeatmap();
-  });
-}
-
-async function refreshHeatmap() {
-  const heatmap = await get(`/api/activity-heatmap?days=${heatmapState.days}&project=${heatmapState.project}`);
   renderHeatmap(heatmap);
 }
 
@@ -213,14 +191,18 @@ function renderRiskList(heartbeats) {
 }
 
 // ---- Activity heatmap (real git commit history, GitHub-style) ----
+const MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
 function renderHeatmap(heatmap) {
   const entries = Object.entries(heatmap.counts || {});
   const total = entries.reduce((s, [, c]) => s + c, 0);
-  $("#heatmap-total").textContent = `${total} commit${total === 1 ? "" : "s"}`;
+  $("#heatmap-total").textContent = `${total} commit${total === 1 ? "" : "s"} (last ${heatmap.days || HEATMAP_DAYS} days)`;
 
   const el = $("#heatmap");
+  const monthsEl = $("#heatmap-months");
   if (!entries.length) {
     el.innerHTML = `<div class="risk-empty">No repos with a configured path yet.</div>`;
+    monthsEl.innerHTML = "";
     return;
   }
   const max = Math.max(1, ...entries.map(([, c]) => c));
@@ -238,6 +220,22 @@ function renderHeatmap(heatmap) {
   for (let i = 0; i < entries.length; i += 7) {
     weeks.push(entries.slice(i, i + 7));
   }
+
+  // Month labels: show the month name above the first week that starts a new month.
+  let lastMonth = null;
+  monthsEl.innerHTML = weeks
+    .map((week) => {
+      const firstDate = new Date(week[0][0] + "T00:00:00");
+      const month = firstDate.getMonth();
+      let label = "";
+      if (month !== lastMonth) {
+        label = MONTH_NAMES[month];
+        lastMonth = month;
+      }
+      return `<div class="heatmap-month-label">${label}</div>`;
+    })
+    .join("");
+
   el.innerHTML = weeks
     .map(
       (week) =>
@@ -406,9 +404,12 @@ async function openProjectModal(slug) {
   try {
     const d = await get(`/api/project?slug=${encodeURIComponent(slug)}`);
     title.textContent = d.name;
+    $("#modal-title-pill").innerHTML = d.computeStatus !== undefined ? statusPill(d.computeStatus) : "";
 
     const row = (k, v) => `<div class="detail-row"><span class="k">${k}</span><span class="v">${v ?? "—"}</span></div>`;
-    let html = `<div class="detail-section-title">Project</div>`;
+    const section = (icon, title) => `<div class="detail-section-title"><span class="detail-section-icon">${icon}</span>${title}</div>`;
+
+    let html = section("▣", "Project");
     html += row("Slug", d.slug);
     html += row("Account", d.account);
     html += row("Provider", d.provider);
@@ -418,32 +419,39 @@ async function openProjectModal(slug) {
     html += row("Pause when idle", d.pauseWhenIdle ? "yes" : "no");
 
     if (d.computeStatus !== undefined) {
-      html += `<div class="detail-section-title">Compute</div>`;
+      html += section("◈", "Compute");
       html += row("Status", statusPill(d.computeStatus));
       html += row("Region", d.region);
     }
 
     if (d.heartbeat) {
-      html += `<div class="detail-section-title">Heartbeat</div>`;
+      html += section("♡", "Heartbeat");
       html += row("Enabled", d.heartbeat.enabled ? "yes" : "no");
       html += row("Last beat", d.heartbeat.lastAt ? new Date(d.heartbeat.lastAt).toLocaleString() : "never");
-      html += row("Days left", d.heartbeat.daysLeft !== null && d.heartbeat.daysLeft !== undefined ? `${d.heartbeat.daysLeft.toFixed(1)}d` : "?");
+      if (d.heartbeat.daysLeft !== null && d.heartbeat.daysLeft !== undefined) {
+        const pct = Math.max(2, Math.min(100, (d.heartbeat.daysLeft / d.heartbeat.window) * 100));
+        const low = d.heartbeat.daysLeft < d.heartbeat.window * 0.3 ? " low" : "";
+        html += `<div class="detail-row"><span class="k">Days left</span><span class="v">${d.heartbeat.daysLeft.toFixed(1)}d</span></div>`;
+        html += `<div class="risk-bar" style="margin-bottom:10px;"><div class="risk-bar-fill${low}" style="width:${pct}%"></div></div>`;
+      } else {
+        html += row("Days left", "?");
+      }
     }
 
     if (d.lastPush) {
-      html += `<div class="detail-section-title">Git activity</div>`;
+      html += section("▦", "Git activity");
       if (d.lastPush.ok) {
         html += row("Branch", d.lastPush.branch);
         html += row("Last push", d.lastPush.lastPushAt ? new Date(d.lastPush.lastPushAt).toLocaleString() : "?");
         html += row("Last commit", d.lastPush.lastPushSubject);
         html += row("Ahead / behind", `${d.lastPush.ahead ?? "?"} / ${d.lastPush.behind ?? "?"}`);
-        html += row("Working tree", d.lastPush.dirty ? "dirty" : "clean");
+        html += row("Working tree", d.lastPush.dirty ? `<span class="status-pill inactive">dirty</span>` : `<span class="status-pill active">clean</span>`);
       } else {
         html += row("Status", d.lastPush.error || "no repo configured");
       }
     }
 
-    html += `<div class="detail-section-title">Env vault</div>`;
+    html += section("⚿", "Env vault");
     if (d.env && d.env.keys && d.env.keys.length) {
       html += `<div class="env-keys">${d.env.keys.map((k) => `<span class="env-key">${k}</span>`).join("")}</div>`;
     } else {
@@ -561,16 +569,6 @@ function initButtons() {
       const view = btn.dataset.goto;
       const navBtn = document.querySelector(`.nav-item[data-view="${view}"]`);
       if (navBtn) navBtn.click();
-    });
-  });
-
-  // Heatmap range segmented control (30d / 60d / all time).
-  $$("#heatmap-range .segmented-btn").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      $$("#heatmap-range .segmented-btn").forEach((b) => b.classList.remove("active"));
-      btn.classList.add("active");
-      heatmapState.days = parseInt(btn.dataset.days, 10);
-      refreshHeatmap();
     });
   });
 
