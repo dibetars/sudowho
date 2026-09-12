@@ -77,6 +77,11 @@ class Handler(BaseHTTPRequestHandler):
                 self._json(core.cmd_heartbeat_status())
             elif path == "/api/last-push":
                 self._json(core.cmd_last_push(fetch="fetch" in qs))
+            elif path == "/api/activity-heatmap":
+                days = int(qs.get("days", ["70"])[0])
+                self._json(core.cmd_activity_heatmap(days))
+            elif path == "/api/status-breakdown":
+                self._json(core.cmd_status_breakdown())
             elif path == "/api/state":
                 self._json(core.load_state())
             else:

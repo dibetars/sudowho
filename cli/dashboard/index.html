@@ -77,9 +77,35 @@
 
         <div class="grid-2">
           <div class="card">
+            <div class="card-header"><h3>Compute status</h3></div>
+            <div class="donut-wrap">
+              <svg viewBox="0 0 120 120" class="donut" id="status-donut"></svg>
+              <div class="donut-legend" id="status-legend"></div>
+            </div>
+          </div>
+
+          <div class="card">
             <div class="card-header">
-              <h3>Compute status</h3>
-              <button class="btn small" id="wake-all-btn">Wake all</button>
+              <h3>Projects at risk</h3>
+              <span class="muted small-label">days left before auto-pause</span>
+            </div>
+            <div id="risk-list" class="risk-list"></div>
+          </div>
+        </div>
+
+        <div class="card" style="margin-top:16px;">
+          <div class="card-header">
+            <h3>Activity — last 10 weeks</h3>
+            <span class="muted small-label" id="heatmap-total"></span>
+          </div>
+          <div id="heatmap" class="heatmap"></div>
+        </div>
+
+        <div class="grid-2" style="margin-top:16px;">
+          <div class="card">
+            <div class="card-header">
+              <h3>Compute</h3>
+              <button class="btn small" id="wake-all-btn" data-loading-label="Waking...">Wake all</button>
             </div>
             <table class="table" id="compute-table">
               <thead><tr><th>Project</th><th>Status</th><th></th></tr></thead>
@@ -119,8 +145,8 @@
           <div class="card-header">
             <h3>Wake / pause</h3>
             <div class="actions">
-              <button class="btn small" id="pause-idle-btn">Pause idle</button>
-              <button class="btn small primary" id="wake-all-btn-2">Wake all</button>
+              <button class="btn small" id="pause-idle-btn" data-loading-label="Pausing...">Pause idle</button>
+              <button class="btn small primary" id="wake-all-btn-2" data-loading-label="Waking...">Wake all</button>
             </div>
           </div>
           <table class="table" id="compute-table-2">
@@ -134,7 +160,7 @@
         <div class="card">
           <div class="card-header">
             <h3>Heartbeat</h3>
-            <button class="btn small primary" id="heartbeat-all-btn">Run heartbeat now</button>
+            <button class="btn small primary" id="heartbeat-all-btn" data-loading-label="Beating...">Run heartbeat now</button>
           </div>
           <table class="table" id="heartbeat-table-2">
             <thead><tr><th>Project</th><th>Enabled</th><th>Last beat</th><th>Days left</th></tr></thead>
@@ -147,7 +173,7 @@
         <div class="card">
           <div class="card-header">
             <h3>Last push per project</h3>
-            <button class="btn small" id="fetch-refresh-btn">↻ Fetch remotes</button>
+            <button class="btn small" id="fetch-refresh-btn" data-loading-label="Fetching...">↻ Fetch remotes</button>
           </div>
           <table class="table" id="activity-table">
             <thead><tr><th>Project</th><th>Branch</th><th>Last push</th><th>Days ago</th><th>State</th></tr></thead>

@@ -76,6 +76,11 @@ def token_path(account: str) -> Path:
 def get_token(account: str) -> str | None:
     p = token_path(account)
     if not p.exists():
+        # Back-compat: pre-public-release installs stored tokens under
+        # ROOT/supabase/<account>/access-token instead of ROOT/secrets/...
+        legacy = ROOT / "supabase" / account / "access-token"
+        p = legacy if legacy.exists() else p
+    if not p.exists():
         return None
     return p.read_text().strip() or None
 
@@ -518,6 +523,55 @@ def _last_push_info(repo: str) -> dict:
     return info
 
 
+def cmd_activity_heatmap(days: int = 70) -> dict:
+    """Aggregate real commit activity across all configured repos.
+
+    Returns {"days": N, "counts": {"YYYY-MM-DD": count}} built from actual
+    `git log` history, GitHub-contribution-graph style. Only projects with
+    a `repo` path configured are included.
+    """
+    from collections import Counter
+    from datetime import datetime, timedelta, timezone
+
+    cfg = load_cfg()
+    counts: Counter[str] = Counter()
+    for _, proj in cfg["projects"].items():
+        repo = proj.get("repo")
+        if not repo or not Path(repo).exists() or not in_git_repo(repo):
+            continue
+        out = _git(repo, "log", f"--since={days}.days", "--all", "--date=short", "--format=%cd")
+        if not out:
+            continue
+        for line in out.splitlines():
+            line = line.strip()
+            if line:
+                counts[line] += 1
+
+    today = datetime.now(timezone.utc).date()
+    ordered = {}
+    for i in range(days - 1, -1, -1):
+        d = (today - timedelta(days=i)).isoformat()
+        ordered[d] = counts.get(d, 0)
+    return {"days": days, "counts": ordered}
+
+
+def cmd_status_breakdown() -> dict:
+    """Real counts of project compute status, for a donut/pie chart."""
+    compute = cmd_compute_status()
+    from collections import Counter
+
+    buckets: Counter[str] = Counter()
+    for c in compute:
+        status = (c.get("status") or "UNKNOWN").upper()
+        if "ACTIVE" in status:
+            buckets["active"] += 1
+        elif "INACTIVE" in status or "PAUS" in status:
+            buckets["paused"] += 1
+        else:
+            buckets["unknown"] += 1
+    return dict(buckets)
+
+
 def cmd_last_push(fetch: bool = False) -> list[dict]:
     cfg = load_cfg()
     out = []
@@ -613,6 +667,11 @@ def main(argv: list[str]) -> None:
         out(cmd_heartbeat(rest[0] if rest else None))
     elif cmd == "heartbeat-status":
         out(cmd_heartbeat_status())
+    elif cmd == "activity-heatmap":
+        days = int(rest[0]) if rest else 70
+        out(cmd_activity_heatmap(days))
+    elif cmd == "status-breakdown":
+        out(cmd_status_breakdown())
     elif cmd == "last-push":
         out(cmd_last_push(fetch="--fetch" in rest))
     elif cmd == "env-show":
