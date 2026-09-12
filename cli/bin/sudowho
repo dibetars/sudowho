@@ -1,0 +1,247 @@
+#!/usr/bin/env bash
+# sudowho — local-first identity + project + compute manager for developers
+# juggling multiple git/GitHub/Vercel/Supabase accounts.
+set -euo pipefail
+
+SUDOWHO_HOME="${SUDOWHO_HOME:-$HOME/.config/sudowho}"
+
+# Resolve the real script path even when invoked through a symlink (e.g. ~/bin/sudowho).
+resolve_script_path() {
+  local src="${BASH_SOURCE[0]}"
+  while [[ -L "$src" ]]; do
+    local dir
+    dir="$(cd -P "$(dirname "$src")" && pwd)"
+    src="$(readlink "$src")"
+    [[ "$src" != /* ]] && src="$dir/$src"
+  done
+  echo "$src"
+}
+SCRIPT_PATH="$(resolve_script_path)"
+SCRIPT_DIR="$(cd -P "$(dirname "$SCRIPT_PATH")" && pwd)"
+LIB_DIR="$SCRIPT_DIR/../lib"
+if [[ ! -f "$LIB_DIR/core.py" ]]; then
+  LIB_DIR="$SUDOWHO_HOME/lib"
+fi
+
+usage() {
+  cat <<'EOF'
+sudowho — local-first multi-identity dev toolkit
+
+Setup
+  sudowho init                          Interactive setup wizard
+  sudowho dashboard [--port N]          Open the local web dashboard
+
+Identity
+  sudowho <profile>                     Switch git + gh + vercel for this repo
+  sudowho <profile> --push              Switch, auto commit message, commit, push
+  sudowho <profile> -m "msg"            Switch, commit with your message, push
+  sudowho status                        Show current identities
+  sudowho list                          List configured profiles
+  sudowho vercel-save <profile>         Save current Vercel login
+
+Projects / compute (Supabase)
+  sudowho use <project> [--pause-others] [--env]
+  sudowho projects
+  sudowho accounts
+  sudowho supabase-login <account> [token]
+  sudowho sync-refs [account]
+  sudowho wake <project> [--pause-others]
+  sudowho wake-all
+  sudowho pause <project>
+  sudowho pause-idle
+  sudowho compute-status
+  sudowho heartbeat [project]
+  sudowho heartbeat-status
+  sudowho heartbeat-cron-install
+  sudowho heartbeat-cron-uninstall
+  sudowho last-push [--fetch]
+
+Env vault
+  sudowho env <project>
+  sudowho env-to <project> <path>
+  sudowho env-set <project> <file>
+
+Config: ~/.config/sudowho/config.json
+Docs:   https://sudowho.tarsusstudios.com/docs
+EOF
+}
+
+die() { printf 'sudowho: %s\n' "$*" >&2; exit 1; }
+need_cmd() { command -v "$1" >/dev/null 2>&1 || die "missing required command: $1"; }
+
+py() { python3 "$LIB_DIR/core.py" "$@"; }
+
+cmd_dashboard() {
+  local port=4173
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --port) port="$2"; shift 2 ;;
+      *) shift ;;
+    esac
+  done
+  need_cmd python3
+  python3 "$LIB_DIR/dashboard_server.py" "$port"
+}
+
+in_git_repo() { git rev-parse --is-inside-work-tree >/dev/null 2>&1; }
+
+generate_commit_message() {
+  python3 <<'PY'
+import re
+import subprocess
+from collections import defaultdict
+from pathlib import Path
+
+def run(args):
+    return subprocess.check_output(args, text=True, stderr=subprocess.DEVNULL)
+
+status_lines = run(["git", "diff", "--cached", "--name-status"]).splitlines()
+if not status_lines:
+    raise SystemExit("no staged changes")
+
+stat = run(["git", "diff", "--cached", "--numstat"])
+files = []
+for line in status_lines:
+    parts = line.split("\t")
+    code = parts[0]
+    if code.startswith(("R", "C")):
+        path, action = parts[-1], "renamed" if code.startswith("R") else "copied"
+    elif code.startswith("A"):
+        path, action = parts[1], "added"
+    elif code.startswith("D"):
+        path, action = parts[1], "deleted"
+    else:
+        path, action = parts[-1], "modified"
+    files.append((action, path))
+
+insertions = deletions = 0
+for line in stat.splitlines():
+    cols = line.split("\t")
+    if len(cols) < 3:
+        continue
+    if cols[0].isdigit():
+        insertions += int(cols[0])
+    if cols[1].isdigit():
+        deletions += int(cols[1])
+
+areas = []
+for _, path in files:
+    top = path.split("/", 1)[0]
+    if top not in areas and top not in {".", ""}:
+        areas.append(top)
+    if len(areas) >= 4:
+        break
+
+actions = {a for a, _ in files}
+type_ = "chore"
+joined = " ".join(p for _, p in files).lower()
+if any(a == "added" for a in actions) and len(files) <= 5:
+    type_ = "feat"
+if any(x in joined for x in ("fix", "bug", "hotfix", "patch")):
+    type_ = "fix"
+
+if len(files) == 1:
+    action, path = files[0]
+    subject = f"{type_}: {action} {path}"
+elif areas:
+    subject = f"{type_}: update {', '.join(areas[:3])}"
+else:
+    subject = f"{type_}: update {len(files)} files"
+if len(subject) > 72:
+    subject = subject[:69] + "..."
+
+lines = [subject, "", "Summary", f"- {len(files)} file(s) changed, +{insertions}/-{deletions} lines"]
+if areas:
+    lines.append(f"- Focus: {', '.join(areas)}")
+print("\n".join(lines))
+PY
+}
+
+cmd_switch_and_commit() {
+  local profile="$1"
+  local message="${2:-}"
+  local do_push="$3"
+
+  need_cmd python3
+  need_cmd git
+  need_cmd gh
+  in_git_repo || die "not inside a git repository"
+
+  py switch "$profile" "$(pwd)"
+
+  if [[ "$do_push" == "1" || -n "$message" ]]; then
+    git add -A
+    git diff --cached --quiet && die "nothing to commit"
+    if [[ -z "$message" ]]; then
+      message=$(generate_commit_message) || die "failed to generate commit message"
+      echo "$message"
+      echo
+    fi
+    git commit -m "$message"
+    local branch remote
+    branch=$(git rev-parse --abbrev-ref HEAD)
+    if git rev-parse --abbrev-ref --symbolic-full-name '@{u}' >/dev/null 2>&1; then
+      git push
+    else
+      remote=$(git remote | head -n1)
+      [[ -n "$remote" ]] || die "no git remote configured"
+      git push -u "$remote" "$branch"
+    fi
+  fi
+}
+
+main() {
+  local cmd="${1:-}"
+  case "$cmd" in
+    ""|-h|--help|help) usage ;;
+    init) py init ;;
+    dashboard) shift; cmd_dashboard "$@" ;;
+    list) python3 -c "
+import json,sys
+sys.path.insert(0,'$LIB_DIR')
+import core
+for name,p in core.load_cfg()['profiles'].items():
+    v=(p.get('vercel') or {}).get('preferredScope','-')
+    print(f\"{name:12}  git={p['git']['name']} <{p['git']['email']}>  gh={p.get('gh','-')}  vercel={v}\")
+" ;;
+    status)
+      echo "GitHub CLI:"; gh api user -q '.login' 2>/dev/null | sed 's/^/  active account: /' || echo "  (gh not available)"
+      echo "Git (this repo):"
+      if in_git_repo; then
+        echo "  $(git config --local --get user.name 2>/dev/null || echo '?') <$(git config --local --get user.email 2>/dev/null || echo '?')>"
+      else
+        echo "  (not inside a git repo)"
+      fi
+      echo "Vercel:"; vercel whoami 2>/dev/null | sed 's/^/  user: /' || echo "  (not logged in)"
+      ;;
+    vercel-save) shift; py vercel-save "$1" ;;
+    projects) py projects ;;
+    accounts) py accounts ;;
+    supabase-login) shift; py supabase-login "$@" ;;
+    wake) shift; py wake "$@" ;;
+    wake-all) py wake-all ;;
+    pause) shift; py pause "$1" ;;
+    pause-idle) py pause-idle ;;
+    compute-status) py compute-status ;;
+    heartbeat) shift; py heartbeat "$@" ;;
+    heartbeat-status) py heartbeat-status ;;
+    last-push) shift; py last-push "$@" ;;
+    env) shift; py env-show "$1" ;;
+    env-to) shift; py env-to "$@" ;;
+    env-set) shift; py env-set "$@" ;;
+    *)
+      local message="" do_push=0 profile=""
+      while [[ $# -gt 0 ]]; do
+        case "$1" in
+          -m|--message) message="$2"; do_push=1; shift 2 ;;
+          --push) do_push=1; shift ;;
+          *) profile="$1"; shift ;;
+        esac
+      done
+      [[ -n "$profile" ]] || die "unknown command or missing profile (run: sudowho help)"
+      cmd_switch_and_commit "$profile" "$message" "$do_push"
+      ;;
+  esac
+}
+
+main "$@"

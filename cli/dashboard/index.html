@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>sudowho — local dashboard</title>
+<link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <div class="shell">
+    <aside class="sidebar">
+      <div class="brand">
+        <span class="brand-mark">⌁</span>
+        <span class="brand-name">sudowho</span>
+      </div>
+      <nav class="nav">
+        <button class="nav-item active" data-view="overview">
+          <span class="nav-icon">▣</span> Overview
+        </button>
+        <button class="nav-item" data-view="identity">
+          <span class="nav-icon">◐</span> Identity
+        </button>
+        <button class="nav-item" data-view="projects">
+          <span class="nav-icon">▤</span> Projects
+        </button>
+        <button class="nav-item" data-view="compute">
+          <span class="nav-icon">◈</span> Compute
+        </button>
+        <button class="nav-item" data-view="heartbeat">
+          <span class="nav-icon">♡</span> Heartbeat
+        </button>
+        <button class="nav-item" data-view="activity">
+          <span class="nav-icon">▦</span> Activity
+        </button>
+        <button class="nav-item" data-view="settings">
+          <span class="nav-icon">⚙</span> Settings
+        </button>
+      </nav>
+      <div class="sidebar-footer">
+        <button id="theme-toggle" class="theme-toggle" title="Toggle theme">
+          <span id="theme-icon">☾</span> <span id="theme-label">Dark</span>
+        </button>
+        <div class="local-badge">● Local only — nothing leaves this machine</div>
+      </div>
+    </aside>
+
+    <main class="content">
+      <header class="topbar">
+        <div>
+          <div class="crumb">sudowho</div>
+          <h1 id="view-title">Overview</h1>
+        </div>
+        <div class="topbar-actions">
+          <button class="btn" id="refresh-btn">↻ Refresh</button>
+        </div>
+      </header>
+
+      <section id="view-overview" class="view active">
+        <div class="cards">
+          <div class="card metric">
+            <div class="metric-label">Active Projects</div>
+            <div class="metric-value" id="m-active">–</div>
+          </div>
+          <div class="card metric">
+            <div class="metric-label">Paused Projects</div>
+            <div class="metric-value" id="m-paused">–</div>
+          </div>
+          <div class="card metric">
+            <div class="metric-label">Heartbeats OK</div>
+            <div class="metric-value" id="m-heartbeats">–</div>
+          </div>
+          <div class="card metric">
+            <div class="metric-label">Profiles Configured</div>
+            <div class="metric-value" id="m-profiles">–</div>
+          </div>
+        </div>
+
+        <div class="grid-2">
+          <div class="card">
+            <div class="card-header">
+              <h3>Compute status</h3>
+              <button class="btn small" id="wake-all-btn">Wake all</button>
+            </div>
+            <table class="table" id="compute-table">
+              <thead><tr><th>Project</th><th>Status</th><th></th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+
+          <div class="card">
+            <div class="card-header"><h3>Heartbeat — days left</h3></div>
+            <table class="table" id="heartbeat-table">
+              <thead><tr><th>Project</th><th>Last beat</th><th>Days left</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <section id="view-identity" class="view">
+        <div class="card">
+          <div class="card-header"><h3>Switch identity</h3></div>
+          <div id="profiles-list" class="profile-grid"></div>
+        </div>
+        <div id="switch-result" class="card result hidden"></div>
+      </section>
+
+      <section id="view-projects" class="view">
+        <div class="card">
+          <table class="table" id="projects-table">
+            <thead><tr><th>Slug</th><th>Name</th><th>Profile</th><th>Provider</th><th>Account</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section id="view-compute" class="view">
+        <div class="card">
+          <div class="card-header">
+            <h3>Wake / pause</h3>
+            <div class="actions">
+              <button class="btn small" id="pause-idle-btn">Pause idle</button>
+              <button class="btn small primary" id="wake-all-btn-2">Wake all</button>
+            </div>
+          </div>
+          <table class="table" id="compute-table-2">
+            <thead><tr><th>Project</th><th>Status</th><th>Actions</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section id="view-heartbeat" class="view">
+        <div class="card">
+          <div class="card-header">
+            <h3>Heartbeat</h3>
+            <button class="btn small primary" id="heartbeat-all-btn">Run heartbeat now</button>
+          </div>
+          <table class="table" id="heartbeat-table-2">
+            <thead><tr><th>Project</th><th>Enabled</th><th>Last beat</th><th>Days left</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section id="view-activity" class="view">
+        <div class="card">
+          <div class="card-header">
+            <h3>Last push per project</h3>
+            <button class="btn small" id="fetch-refresh-btn">↻ Fetch remotes</button>
+          </div>
+          <table class="table" id="activity-table">
+            <thead><tr><th>Project</th><th>Branch</th><th>Last push</th><th>Days ago</th><th>State</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section id="view-settings" class="view">
+        <div class="card">
+          <div class="card-header"><h3>Config location</h3></div>
+          <p class="muted">All data lives locally at <code>~/.config/sudowho/</code>. Nothing is sent to any server except the Supabase Management API (to wake/pause your own projects) and your own git remotes.</p>
+          <p class="muted">Edit <code>config.json</code> directly, or run <code class="inline">sudowho init</code> in your terminal to add more profiles.</p>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script src="/app.js"></script>
+</body>
+</html>

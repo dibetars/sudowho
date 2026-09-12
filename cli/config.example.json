@@ -1,0 +1,35 @@
+{
+  "profiles": {
+    "personal": {
+      "git": { "name": "Your Name", "email": "you@personal.com" },
+      "gh": "your-personal-github-login",
+      "vercel": { "preferredScope": "your-personal-vercel-team" }
+    },
+    "work": {
+      "git": { "name": "Your Name", "email": "you@work.com" },
+      "gh": "your-work-github-login",
+      "vercel": { "preferredScope": "your-work-vercel-team" }
+    }
+  },
+  "supabaseAccounts": {
+    "acme-inc": {
+      "label": "Acme Inc",
+      "email": "you@acme-inc.com"
+    }
+  },
+  "projects": {
+    "my-app": {
+      "name": "My App",
+      "account": "acme-inc",
+      "provider": "supabase",
+      "whoami": "work",
+      "ref": null,
+      "repo": "/absolute/path/to/my-app",
+      "pauseWhenIdle": true
+    }
+  },
+  "settings": {
+    "heartbeatInactivityDays": 7,
+    "heartbeatEnabledDefault": true
+  }
+}
