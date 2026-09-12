@@ -40,6 +40,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - `core.py` `get_token()` now falls back to the legacy
   `ROOT/supabase/<account>/access-token` path, so accounts set up before
   the public release keep working without re-entering tokens.
+- `cmd_switch_identity()` now also falls back to the legacy
+  `ROOT/vercel/<profile>/` path for saved Vercel logins.
+- Identity switch now returns a `vercelError` explaining *why* Vercel
+  is `null` (expired session vs. never saved) instead of a silent
+  `null`, since Vercel CLI session tokens expire ~2 hours after
+  `vercel login` and there's no way to refresh them automatically.
 
 ## [0.1.0] - 2026-09-12
 
