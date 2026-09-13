@@ -406,25 +406,56 @@ async function startVercelReauth(profile, statusEl, btn) {
   poll();
 }
 
-// ---- Projects ----
-async function loadProjects() {
-  $("#projects-table tbody").innerHTML = skeletonRows(6, 6);
-  const projects = await get("/api/projects");
-  const body = $("#projects-table tbody");
-  body.innerHTML = Object.entries(projects)
-    .map(
-      ([slug, p]) => `<tr>
-        <td>${slug}</td>
-        <td>${p.name}</td>
-        <td>${p.whoami || "-"}</td>
-        <td>${p.provider}</td>
-        <td>${p.account}</td>
-        <td><button class="project-link" data-slug="${slug}">View details →</button></td>
-      </tr>`
-    )
-    .join("");
+// ---- Projects (card grid) ----
+function skeletonProjectCards(n = 6) {
+  return Array.from({ length: n }, () => `
+    <div class="proj-card">
+      <span class="skeleton skeleton-text" style="width:55%;height:16px;"></span>
+      <span class="skeleton skeleton-pill"></span>
+      <span class="skeleton skeleton-text" style="width:70%;"></span>
+      <span class="skeleton skeleton-text" style="width:40%;"></span>
+    </div>`).join("");
+}
 
-  $$(".project-link").forEach((btn) => btn.addEventListener("click", () => openProjectModal(btn.dataset.slug)));
+function gitStatusLine(git) {
+  if (!git || !git.ok) return `<span class="muted">No repo</span>`;
+  const tree = git.dirty
+    ? `<span class="status-pill inactive">dirty</span>`
+    : `<span class="status-pill active">clean</span>`;
+  const ahead = git.ahead > 0 ? `<span class="proj-git-ahead">${git.ahead} ahead</span>` : "";
+  const behind = git.behind > 0 ? `<span class="proj-git-behind">${git.behind} behind</span>` : "";
+  return `${tree}<span class="proj-git-branch">${esc(git.branch || "?")}</span>${ahead}${behind}`;
+}
+
+async function loadProjects(fresh = false) {
+  const grid = $("#projects-grid");
+  grid.innerHTML = skeletonProjectCards(8);
+  const cards = await get("/api/project-cards", { fresh });
+  grid.innerHTML = cards
+    .map((p) => {
+      const compute = p.computeStatus ? statusPill(p.computeStatus) : `<span class="status-pill unknown">n/a</span>`;
+      const hasRepo = !!(p.git && p.git.ok);
+      return `<div class="proj-card" data-slug="${esc(p.slug)}">
+        <div class="proj-card-top">
+          <div>
+            <div class="proj-card-name">${esc(p.name)}</div>
+            <div class="proj-card-meta">${esc(p.whoami || p.account || "—")} · ${esc(p.provider || "—")}</div>
+          </div>
+          ${compute}
+        </div>
+        <div class="proj-card-git">${gitStatusLine(p.git)}</div>
+        <div class="proj-card-actions">
+          <button class="mini-btn proj-details-btn" type="button" data-slug="${esc(p.slug)}">View details</button>
+          <button class="mini-btn primary proj-commit-btn" type="button" data-slug="${esc(p.slug)}" data-name="${esc(p.name)}" ${hasRepo ? "" : "disabled"}>Commit &amp; push</button>
+        </div>
+      </div>`;
+    })
+    .join("") || `<div class="muted">No projects configured yet.</div>`;
+
+  $$(".proj-details-btn").forEach((btn) => btn.addEventListener("click", () => openProjectModal(btn.dataset.slug)));
+  $$(".proj-commit-btn").forEach((btn) => {
+    if (!btn.disabled) btn.addEventListener("click", () => openGitModal(btn.dataset.slug, btn.dataset.name));
+  });
 }
 
 // ---- Project detail modal ----
@@ -499,14 +530,16 @@ async function openProjectModal(slug, notice) {
     }
 
     body.innerHTML = html;
-    if (d.lastPush && d.lastPush.ok) bindGitActions(d.slug, notice);
+    if (d.lastPush && d.lastPush.ok) {
+      fillGitSlot($("#git-actions-slot"), d.slug, notice, (n) => openProjectModal(d.slug, n));
+    }
   } catch (e) {
     title.textContent = "Error";
     body.innerHTML = `<div class="muted">${e.message}</div>`;
   }
 }
 
-function renderGitActions(slug, git) {
+function renderGitActions(git) {
   const dirty = !!(git && git.dirty);
   const ahead = !!(git && git.ahead > 0);
   const files = (git && git.files) || [];
@@ -514,7 +547,7 @@ function renderGitActions(slug, git) {
     ? `<div class="git-files">${files
         .map((f) => `<div class="git-file"><span class="code">${esc(f.status)}</span><span>${esc(f.path)}</span></div>`)
         .join("")}</div>`
-    : "";
+    : `<div class="muted small-label">No uncommitted changes.</div>`;
   const hint = dirty
     ? "Leave the message blank to auto-generate one from the changed files."
     : ahead
@@ -523,40 +556,42 @@ function renderGitActions(slug, git) {
   return `
     <div class="git-actions">
       ${fileList}
-      <textarea class="git-msg" id="git-msg" placeholder="Commit message (optional — auto-generated if blank)" ${dirty ? "" : "disabled"}></textarea>
+      <textarea class="git-msg" placeholder="Commit message (optional — auto-generated if blank)" ${dirty ? "" : "disabled"}></textarea>
       <div class="muted small-label">${hint}</div>
       <div class="git-btns">
-        <button class="mini-btn" id="git-commit-btn" type="button" ${dirty ? "" : "disabled"}>Commit</button>
-        <button class="mini-btn" id="git-push-btn" type="button" ${ahead ? "" : "disabled"}>Push</button>
-        <button class="mini-btn primary" id="git-both-btn" type="button" ${dirty ? "" : "disabled"}>Commit &amp; push</button>
+        <button class="mini-btn git-commit-btn" type="button" ${dirty ? "" : "disabled"}>Commit</button>
+        <button class="mini-btn git-push-btn" type="button" ${ahead ? "" : "disabled"}>Push</button>
+        <button class="mini-btn primary git-both-btn" type="button" ${dirty ? "" : "disabled"}>Commit &amp; push</button>
       </div>
-      <div id="git-result"></div>
+      <div class="git-result"></div>
     </div>`;
 }
 
-function bindGitActions(slug, notice) {
-  const slot = $("#git-actions-slot");
+function fillGitSlot(slot, slug, notice, onSuccess) {
   if (!slot) return;
   slot.innerHTML = `<div class="muted small-label">Checking working tree...</div>`;
 
-  const banner = (ok, text) => {
-    const el = $("#git-result");
+  const showBanner = (ok, text) => {
+    const el = slot.querySelector(".git-result");
     if (!el) return;
-    el.className = "git-banner " + (ok ? "ok" : "err");
+    el.className = "git-result git-banner " + (ok ? "ok" : "err");
     el.textContent = text;
   };
 
-  const refresh = (ok, text) => openProjectModal(slug, { ok, text });
-
   get(`/api/git-status?slug=${encodeURIComponent(slug)}`)
     .then((git) => {
-      slot.innerHTML = renderGitActions(slug, git);
-      if (notice) banner(notice.ok, notice.text);
+      slot.innerHTML = renderGitActions(git);
+      if (notice) showBanner(notice.ok, notice.text);
 
-      const msgEl = $("#git-msg");
-      const commitBtn = $("#git-commit-btn");
-      const pushBtn = $("#git-push-btn");
-      const bothBtn = $("#git-both-btn");
+      const msgEl = slot.querySelector(".git-msg");
+      const commitBtn = slot.querySelector(".git-commit-btn");
+      const pushBtn = slot.querySelector(".git-push-btn");
+      const bothBtn = slot.querySelector(".git-both-btn");
+      const done = async (ok, text) => {
+        if (onSuccess) await onSuccess({ ok, text });
+        const active = $(".nav-item.active");
+        if (active && active.dataset.view === "projects") loadProjects(true);
+      };
 
       if (commitBtn && !commitBtn.disabled) {
         commitBtn.dataset.loadingLabel = "Committing...";
@@ -564,7 +599,7 @@ function bindGitActions(slug, notice) {
           "click",
           withLoading(commitBtn, async () => {
             const result = await post("/api/commit", { slug, message: msgEl.value });
-            await refresh(true, `Committed ${result.hash}: ${result.subject}`);
+            await done(true, `Committed ${result.hash}: ${result.subject}`);
           })
         );
       }
@@ -574,7 +609,7 @@ function bindGitActions(slug, notice) {
           "click",
           withLoading(pushBtn, async () => {
             const result = await post("/api/push", { slug });
-            await refresh(true, result.message || "Pushed");
+            await done(true, result.message || "Pushed");
           })
         );
       }
@@ -585,7 +620,7 @@ function bindGitActions(slug, notice) {
           withLoading(bothBtn, async () => {
             const committed = await post("/api/commit", { slug, message: msgEl.value });
             const pushed = await post("/api/push", { slug });
-            await refresh(true, `Committed ${committed.hash} and ${pushed.message || "pushed"}`);
+            await done(true, `Committed ${committed.hash} and ${pushed.message || "pushed"}`);
           })
         );
       }
@@ -595,10 +630,22 @@ function bindGitActions(slug, notice) {
     });
 }
 
+async function openGitModal(slug, name, notice) {
+  const overlay = $("#git-modal");
+  overlay.classList.remove("hidden");
+  $("#git-modal-title").textContent = name ? `Commit & push — ${name}` : "Commit & push";
+  const body = $("#git-modal-body");
+  fillGitSlot(body, slug, notice, (n) => openGitModal(slug, name, n));
+}
+
 function initModal() {
   $("#modal-close").addEventListener("click", () => $("#project-modal").classList.add("hidden"));
   $("#project-modal").addEventListener("click", (e) => {
     if (e.target.id === "project-modal") $("#project-modal").classList.add("hidden");
+  });
+  $("#git-modal-close").addEventListener("click", () => $("#git-modal").classList.add("hidden"));
+  $("#git-modal").addEventListener("click", (e) => {
+    if (e.target.id === "git-modal") $("#git-modal").classList.add("hidden");
   });
 }
 
@@ -664,7 +711,7 @@ async function loadActivity(fetchRemotes, fresh = false) {
 function loadView(view, fresh = false) {
   if (view === "overview") return loadOverview(fresh);
   else if (view === "identity") return loadIdentity();
-  else if (view === "projects") return loadProjects();
+  else if (view === "projects") return loadProjects(fresh);
   else if (view === "compute") return loadCompute(fresh);
   else if (view === "heartbeat") return loadHeartbeat();
   else if (view === "activity") return loadActivity(false, fresh);

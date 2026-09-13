@@ -139,12 +139,7 @@
       </section>
 
       <section id="view-projects" class="view">
-        <div class="card">
-          <table class="table" id="projects-table">
-            <thead><tr><th>Slug</th><th>Name</th><th>Profile</th><th>Provider</th><th>Account</th><th></th></tr></thead>
-            <tbody></tbody>
-          </table>
-        </div>
+        <div id="projects-grid" class="project-grid"></div>
       </section>
 
       <section id="view-compute" class="view">
@@ -209,6 +204,18 @@
         <button id="modal-close" class="mini-btn">✕</button>
       </div>
       <div id="modal-body" class="modal-body"></div>
+    </div>
+  </div>
+
+  <div id="git-modal" class="modal-overlay hidden">
+    <div class="modal">
+      <div class="modal-header">
+        <div class="modal-title-row">
+          <h3 id="git-modal-title">Commit &amp; push</h3>
+        </div>
+        <button id="git-modal-close" class="mini-btn">✕</button>
+      </div>
+      <div id="git-modal-body" class="modal-body"></div>
     </div>
   </div>
 

@@ -62,6 +62,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   project's configured repo. Blank message auto-generates one from the
   changed files. Also available as `sudowho commit <project>` /
   `sudowho push <project>`.
+- Projects tab is a card grid (name, compute status, git status, View
+  details, Commit & push). Commit & push opens a modal of the changed
+  files rather than acting blindly.
 
 ### Changed
 - Overview activity heatmap: removed the project/range filter controls

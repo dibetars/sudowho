@@ -203,6 +203,11 @@ class Handler(BaseHTTPRequestHandler):
                 else:
                     data, hit = _cached(f"project:{slug}", 20, lambda: core.cmd_project_detail(slug), fresh)
                     self._json(data, cache_hit=hit)
+            elif path == "/api/project-cards":
+                fresh = "fresh" in qs
+                compute, _ = _cached("compute-status", 30, core.cmd_compute_status, fresh)
+                data, hit = _cached("project-cards", 20, lambda: core.cmd_project_cards(compute), fresh)
+                self._json(data, cache_hit=hit)
             elif path == "/api/git-status":
                 slug = (qs.get("slug") or [None])[0]
                 if not slug:
@@ -237,19 +242,19 @@ class Handler(BaseHTTPRequestHandler):
                 self._json(core.cmd_switch_identity(body["profile"], body.get("repo", ".")))
             elif path == "/api/wake":
                 result = core.cmd_wake(body["slug"], body.get("pauseOthers", False))
-                _invalidate("compute-status", "project:")
+                _invalidate("compute-status", "project:", "project-cards")
                 self._json(result)
             elif path == "/api/wake-all":
                 result = core.cmd_wake_all()
-                _invalidate("compute-status", "project:")
+                _invalidate("compute-status", "project:", "project-cards")
                 self._json(result)
             elif path == "/api/pause":
                 result = core.cmd_pause(body["slug"])
-                _invalidate("compute-status", "project:")
+                _invalidate("compute-status", "project:", "project-cards")
                 self._json(result)
             elif path == "/api/pause-idle":
                 result = core.cmd_pause_idle()
-                _invalidate("compute-status", "project:")
+                _invalidate("compute-status", "project:", "project-cards")
                 self._json(result)
             elif path == "/api/heartbeat":
                 result = core.cmd_heartbeat(body.get("slug"))
@@ -261,7 +266,7 @@ class Handler(BaseHTTPRequestHandler):
                     self._json({"error": "missing slug"}, 400)
                 else:
                     result = core.cmd_commit(slug, body.get("message"))
-                    _invalidate("last-push", "heatmap", "project:")
+                    _invalidate("last-push", "heatmap", "project:", "project-cards")
                     self._json(result, status=200 if result.get("ok") else 400)
             elif path == "/api/push":
                 slug = body.get("slug")
@@ -269,7 +274,7 @@ class Handler(BaseHTTPRequestHandler):
                     self._json({"error": "missing slug"}, 400)
                 else:
                     result = core.cmd_push(slug)
-                    _invalidate("last-push", "heatmap", "project:")
+                    _invalidate("last-push", "heatmap", "project:", "project-cards")
                     self._json(result, status=200 if result.get("ok") else 400)
             elif path == "/api/vercel-login":
                 profile = body.get("profile")

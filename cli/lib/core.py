@@ -719,6 +719,29 @@ def cmd_project_detail(slug_or_name: str) -> dict:
     return detail
 
 
+def cmd_project_cards(compute: list[dict] | None = None) -> list[dict]:
+    """One card per configured project: name, compute status, git status."""
+    cfg = load_cfg()
+    if compute is None:
+        compute = cmd_compute_status()
+    by_slug = {c["slug"]: c for c in compute}
+    cards = []
+    for slug, proj in cfg["projects"].items():
+        repo = proj.get("repo")
+        git = _last_push_info(repo) if repo else {"ok": False, "error": "no repo path configured"}
+        c = by_slug.get(slug) or {}
+        cards.append({
+            "slug": slug,
+            "name": proj["name"],
+            "account": proj.get("account"),
+            "provider": proj.get("provider"),
+            "whoami": proj.get("whoami"),
+            "computeStatus": c.get("status"),
+            "git": git,
+        })
+    return cards
+
+
 # --------------------------------------------------------------------------
 # Git commit / push for a configured project repo
 # --------------------------------------------------------------------------
@@ -868,6 +891,8 @@ def main(argv: list[str]) -> None:
         out(cmd_status_breakdown())
     elif cmd == "project-detail":
         out(cmd_project_detail(rest[0]))
+    elif cmd == "project-cards":
+        out(cmd_project_cards())
     elif cmd == "git-status":
         out(cmd_git_status(rest[0]))
     elif cmd == "commit":
