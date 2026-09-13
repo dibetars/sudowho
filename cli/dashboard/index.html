@@ -139,6 +139,10 @@
       </section>
 
       <section id="view-projects" class="view">
+        <div class="card-header" style="margin-bottom:16px;">
+          <h3>Your projects</h3>
+          <button class="btn small primary" id="add-project-btn" type="button">+ Add project</button>
+        </div>
         <div id="projects-grid" class="project-grid"></div>
       </section>
 
@@ -216,6 +220,18 @@
         <button id="git-modal-close" class="mini-btn">✕</button>
       </div>
       <div id="git-modal-body" class="modal-body"></div>
+    </div>
+  </div>
+
+  <div id="add-project-modal" class="modal-overlay hidden">
+    <div class="modal">
+      <div class="modal-header">
+        <div class="modal-title-row">
+          <h3 id="add-project-title">Add project</h3>
+        </div>
+        <button id="add-project-close" class="mini-btn">✕</button>
+      </div>
+      <div id="add-project-body" class="modal-body"></div>
     </div>
   </div>
 

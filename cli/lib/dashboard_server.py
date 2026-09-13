@@ -260,6 +260,11 @@ class Handler(BaseHTTPRequestHandler):
                 result = core.cmd_heartbeat(body.get("slug"))
                 _invalidate("project:")  # heartbeat-status itself isn't cached
                 self._json(result)
+            elif path == "/api/add-project":
+                result = core.cmd_add_project(body)
+                if result.get("ok"):
+                    _invalidate("project-cards", "compute-status")
+                self._json(result, status=200 if result.get("ok") else 400)
             elif path == "/api/commit":
                 slug = body.get("slug")
                 if not slug:

@@ -65,6 +65,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Projects tab is a card grid (name, compute status, git status, View
   details, Commit & push). Commit & push opens a modal of the changed
   files rather than acting blindly.
+- Add project wizard on the Projects tab (and `sudowho add-project`)
+  walks through name/slug, account + identity, repo path / Supabase ref,
+  and pause-when-idle, then writes the entry to local `config.json`.
 
 ### Changed
 - Overview activity heatmap: removed the project/range filter controls

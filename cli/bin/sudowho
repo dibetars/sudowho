@@ -43,6 +43,7 @@ Identity
 Projects / compute (Supabase)
   sudowho use <project> [--pause-others] [--env]
   sudowho projects
+  sudowho add-project --name "My App" [--repo PATH] [--account ACC] [--whoami PROFILE]
   sudowho accounts
   sudowho supabase-login <account> [token]
   sudowho sync-refs [account]
@@ -227,6 +228,28 @@ for name,p in core.load_cfg()['profiles'].items():
       py vercel-save "$profile"
       ;;
     projects) py projects ;;
+    add-project)
+      shift
+      python3 - "$LIB_DIR" "$@" <<'PY'
+import json, sys
+sys.path.insert(0, sys.argv[1])
+import core
+args = sys.argv[2:]
+payload = {"pauseWhenIdle": True}
+i = 0
+while i < len(args):
+    a = args[i]
+    if a in ("--name", "--slug", "--account", "--provider", "--whoami", "--ref", "--repo") and i + 1 < len(args):
+        payload[a[2:]] = args[i + 1]
+        i += 2
+    elif a == "--no-pause-idle":
+        payload["pauseWhenIdle"] = False
+        i += 1
+    else:
+        i += 1
+print(json.dumps(core.cmd_add_project(payload), indent=2, default=str))
+PY
+      ;;
     accounts) py accounts ;;
     supabase-login) shift; py supabase-login "$@" ;;
     wake) shift; py wake "$@" ;;

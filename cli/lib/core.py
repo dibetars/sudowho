@@ -742,6 +742,67 @@ def cmd_project_cards(compute: list[dict] | None = None) -> list[dict]:
     return cards
 
 
+def _slugify(value: str) -> str:
+    import re
+
+    key = (value or "").strip().lower().replace(" ", "-").replace("_", "-")
+    key = re.sub(r"[^a-z0-9-]+", "", key)
+    return re.sub(r"-{2,}", "-", key).strip("-")
+
+
+def cmd_add_project(payload: dict) -> dict:
+    """Register a project in config.json. Used by the dashboard wizard and CLI."""
+    cfg = load_cfg()
+    name = (payload.get("name") or "").strip()
+    if not name:
+        return {"ok": False, "error": "name is required"}
+    slug = _slugify(payload.get("slug") or name)
+    if not slug:
+        return {"ok": False, "error": "could not derive a slug from the name"}
+    if slug in cfg["projects"]:
+        return {"ok": False, "error": f"project already exists: {slug}"}
+
+    provider = (payload.get("provider") or "supabase").strip().lower()
+    if provider not in {"supabase", "neon"}:
+        return {"ok": False, "error": "provider must be supabase or neon"}
+
+    account = (payload.get("account") or "").strip()
+    whoami = (payload.get("whoami") or "").strip() or None
+    if whoami and whoami not in cfg["profiles"]:
+        return {"ok": False, "error": f"unknown identity profile: {whoami}"}
+
+    ref = (payload.get("ref") or "").strip() or None
+    repo_raw = (payload.get("repo") or "").strip()
+    repo = str(Path(repo_raw).expanduser()) if repo_raw else None
+
+    if account and account not in cfg["supabaseAccounts"]:
+        cfg["supabaseAccounts"][account] = {
+            "label": (payload.get("accountLabel") or account).strip(),
+            "email": (payload.get("accountEmail") or "").strip(),
+        }
+
+    cfg["projects"][slug] = {
+        "name": name,
+        "account": account or None,
+        "provider": provider,
+        "whoami": whoami,
+        "ref": ref,
+        "repo": repo,
+        "pauseWhenIdle": bool(payload.get("pauseWhenIdle", True)),
+    }
+    save_cfg(cfg)
+
+    warnings = []
+    if repo and not Path(repo).exists():
+        warnings.append(f"repo path does not exist yet: {repo}")
+    if provider == "supabase" and account and not get_token(account):
+        warnings.append(f"no token saved for '{account}' — run: sudowho supabase-login {account}")
+    if provider == "supabase" and not ref:
+        warnings.append("no Supabase ref yet — wake/pause/heartbeat will stay disabled until you add one")
+
+    return {"ok": True, "slug": slug, "project": cfg["projects"][slug], "warnings": warnings}
+
+
 # --------------------------------------------------------------------------
 # Git commit / push for a configured project repo
 # --------------------------------------------------------------------------
@@ -893,6 +954,9 @@ def main(argv: list[str]) -> None:
         out(cmd_project_detail(rest[0]))
     elif cmd == "project-cards":
         out(cmd_project_cards())
+    elif cmd == "add-project":
+        payload = json.loads(rest[0]) if rest else {}
+        out(cmd_add_project(payload))
     elif cmd == "git-status":
         out(cmd_git_status(rest[0]))
     elif cmd == "commit":

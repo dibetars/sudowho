@@ -647,6 +647,237 @@ function initModal() {
   $("#git-modal").addEventListener("click", (e) => {
     if (e.target.id === "git-modal") $("#git-modal").classList.add("hidden");
   });
+  $("#add-project-close").addEventListener("click", () => $("#add-project-modal").classList.add("hidden"));
+  $("#add-project-modal").addEventListener("click", (e) => {
+    if (e.target.id === "add-project-modal") $("#add-project-modal").classList.add("hidden");
+  });
+}
+
+// ---- Add project wizard ----
+const ADD_STEPS = ["Name", "Accounts", "Paths", "Review"];
+const addWizard = {
+  step: 0,
+  data: {},
+  profiles: {},
+  accounts: {},
+};
+
+function slugify(value) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[\s_]+/g, "-")
+    .replace(/[^a-z0-9-]/g, "")
+    .replace(/-{2,}/g, "-")
+    .replace(/^-|-$/g, "");
+}
+
+function defaultAddData() {
+  return {
+    name: "",
+    slug: "",
+    slugTouched: false,
+    provider: "supabase",
+    account: "",
+    newAccount: "",
+    whoami: "",
+    ref: "",
+    repo: "",
+    pauseWhenIdle: true,
+  };
+}
+
+async function openAddProjectWizard() {
+  addWizard.step = 0;
+  addWizard.data = defaultAddData();
+  try {
+    const [profiles, accounts] = await Promise.all([get("/api/profiles"), get("/api/accounts")]);
+    addWizard.profiles = profiles;
+    addWizard.accounts = accounts;
+  } catch (e) {
+    addWizard.profiles = {};
+    addWizard.accounts = {};
+  }
+  const firstAccount = Object.keys(addWizard.accounts)[0] || "";
+  const firstProfile = Object.keys(addWizard.profiles)[0] || "";
+  addWizard.data.account = firstAccount;
+  addWizard.data.whoami = firstProfile;
+  $("#add-project-modal").classList.remove("hidden");
+  renderAddWizard();
+}
+
+function readAddFields() {
+  const d = addWizard.data;
+  const name = $("#add-name");
+  const slug = $("#add-slug");
+  const provider = $("#add-provider");
+  const account = $("#add-account");
+  const newAccount = $("#add-new-account");
+  const whoami = $("#add-whoami");
+  const ref = $("#add-ref");
+  const repo = $("#add-repo");
+  const pause = $("#add-pause");
+  if (name) d.name = name.value;
+  if (slug) {
+    d.slug = slug.value;
+    d.slugTouched = true;
+  }
+  if (provider) d.provider = provider.value;
+  if (account) d.account = account.value;
+  if (newAccount) d.newAccount = newAccount.value;
+  if (whoami) d.whoami = whoami.value;
+  if (ref) d.ref = ref.value;
+  if (repo) d.repo = repo.value;
+  if (pause) d.pauseWhenIdle = pause.checked;
+  if (!d.slugTouched && d.name) d.slug = slugify(d.name);
+}
+
+function field(id, label, extra) {
+  return `<label class="field"><span>${label}</span>${extra}</label>`;
+}
+
+function renderAddWizard() {
+  const d = addWizard.data;
+  const step = addWizard.step;
+  const accountKeys = Object.keys(addWizard.accounts);
+  const profileKeys = Object.keys(addWizard.profiles);
+  $("#add-project-title").textContent = `Add project — ${ADD_STEPS[step]}`;
+
+  const dots = ADD_STEPS.map(
+    (label, i) => `<span class="wizard-dot${i === step ? " active" : ""}${i < step ? " done" : ""}">${i + 1}</span>`
+  ).join("<span class='wizard-dot-line'></span>");
+
+  let inner = "";
+  if (step === 0) {
+    inner = `
+      <p class="muted">What should this project be called? The slug is used in CLI commands like <code>sudowho wake ${esc(d.slug || "my-app")}</code>.</p>
+      ${field("add-name", "Display name", `<input id="add-name" class="wizard-input" type="text" value="${esc(d.name)}" placeholder="My App" autofocus>`)}
+      ${field("add-slug", "Slug", `<input id="add-slug" class="wizard-input" type="text" value="${esc(d.slug)}" placeholder="my-app">`)}
+    `;
+  } else if (step === 1) {
+    const accountOpts = accountKeys.map((k) => `<option value="${esc(k)}" ${d.account === k ? "selected" : ""}>${esc(k)}</option>`).join("");
+    const profileOpts = [`<option value="">— none —</option>`]
+      .concat(profileKeys.map((k) => `<option value="${esc(k)}" ${d.whoami === k ? "selected" : ""}>${esc(k)}</option>`))
+      .join("");
+    inner = `
+      <p class="muted">Which cloud account and identity profile should sudowho use for this project?</p>
+      ${field("add-provider", "Provider", `<select id="add-provider" class="select wizard-input">
+        <option value="supabase" ${d.provider === "supabase" ? "selected" : ""}>Supabase</option>
+        <option value="neon" ${d.provider === "neon" ? "selected" : ""}>Neon</option>
+      </select>`)}
+      ${field("add-account", "Account", `<select id="add-account" class="select wizard-input">
+        ${accountOpts}
+        <option value="__new__" ${d.account === "__new__" ? "selected" : ""}>+ Add a new account…</option>
+      </select>`)}
+      <div id="add-new-account-wrap" class="${d.account === "__new__" ? "" : "hidden"}">
+        ${field("add-new-account", "New account key", `<input id="add-new-account" class="wizard-input" type="text" value="${esc(d.newAccount)}" placeholder="acme-inc">`)}
+      </div>
+      ${field("add-whoami", "Whoami profile", `<select id="add-whoami" class="select wizard-input">${profileOpts}</select>`)}
+    `;
+  } else if (step === 2) {
+    inner = `
+      <p class="muted">Point sudowho at the repo on disk${d.provider === "supabase" ? ", and paste the Supabase project ref if you have it" : ""}.</p>
+      ${field("add-repo", "Repo path", `<input id="add-repo" class="wizard-input" type="text" value="${esc(d.repo)}" placeholder="/Users/you/Projects/my-app">`)}
+      ${
+        d.provider === "supabase"
+          ? field("add-ref", "Supabase ref (optional)", `<input id="add-ref" class="wizard-input" type="text" value="${esc(d.ref)}" placeholder="abcdefghijklmnop">`) +
+            `<p class="muted small-label">Project Settings → General in the Supabase dashboard. Needed for wake / pause / heartbeat.</p>`
+          : ""
+      }
+    `;
+  } else {
+    const account = d.account === "__new__" ? d.newAccount : d.account;
+    inner = `
+      <p class="muted">This will be written to <code>~/.config/sudowho/config.json</code>. Nothing is sent anywhere.</p>
+      <div class="detail-row"><span class="k">Name</span><span class="v">${esc(d.name)}</span></div>
+      <div class="detail-row"><span class="k">Slug</span><span class="v">${esc(d.slug || slugify(d.name))}</span></div>
+      <div class="detail-row"><span class="k">Provider</span><span class="v">${esc(d.provider)}</span></div>
+      <div class="detail-row"><span class="k">Account</span><span class="v">${esc(account || "—")}</span></div>
+      <div class="detail-row"><span class="k">Whoami</span><span class="v">${esc(d.whoami || "—")}</span></div>
+      <div class="detail-row"><span class="k">Repo</span><span class="v">${esc(d.repo || "—")}</span></div>
+      ${d.provider === "supabase" ? `<div class="detail-row"><span class="k">Ref</span><span class="v">${esc(d.ref || "—")}</span></div>` : ""}
+      <label class="field checkbox">
+        <input id="add-pause" type="checkbox" ${d.pauseWhenIdle ? "checked" : ""}>
+        <span>Pause this project when idle</span>
+      </label>
+      <div id="add-wizard-result"></div>
+    `;
+  }
+
+  $("#add-project-body").innerHTML = `
+    <div class="wizard-dots">${dots}</div>
+    ${inner}
+    <div class="wizard-nav">
+      <button class="mini-btn" type="button" id="add-back" ${step === 0 ? "disabled" : ""}>Back</button>
+      ${
+        step < ADD_STEPS.length - 1
+          ? `<button class="mini-btn primary" type="button" id="add-next">Next</button>`
+          : `<button class="mini-btn primary" type="button" id="add-save">Add project</button>`
+      }
+    </div>
+  `;
+
+  const nameEl = $("#add-name");
+  const slugEl = $("#add-slug");
+  if (nameEl && slugEl) {
+    nameEl.addEventListener("input", () => {
+      if (!addWizard.data.slugTouched) slugEl.value = slugify(nameEl.value);
+    });
+    slugEl.addEventListener("input", () => {
+      addWizard.data.slugTouched = true;
+    });
+  }
+  const accountEl = $("#add-account");
+  if (accountEl) {
+    accountEl.addEventListener("change", () => {
+      const wrap = $("#add-new-account-wrap");
+      if (wrap) wrap.classList.toggle("hidden", accountEl.value !== "__new__");
+    });
+  }
+
+  $("#add-back") &&
+    $("#add-back").addEventListener("click", () => {
+      readAddFields();
+      addWizard.step = Math.max(0, addWizard.step - 1);
+      renderAddWizard();
+    });
+  $("#add-next") &&
+    $("#add-next").addEventListener("click", () => {
+      readAddFields();
+      if (addWizard.step === 0 && !addWizard.data.name.trim()) {
+        alert("Give the project a name first.");
+        return;
+      }
+      addWizard.step = Math.min(ADD_STEPS.length - 1, addWizard.step + 1);
+      renderAddWizard();
+    });
+  const saveBtn = $("#add-save");
+  if (saveBtn) {
+    saveBtn.dataset.loadingLabel = "Saving...";
+    saveBtn.addEventListener(
+      "click",
+      withLoading(saveBtn, async () => {
+        readAddFields();
+        const d = addWizard.data;
+        const account = d.account === "__new__" ? d.newAccount.trim() : d.account;
+        const result = await post("/api/add-project", {
+          name: d.name,
+          slug: d.slug || slugify(d.name),
+          provider: d.provider,
+          account,
+          whoami: d.whoami,
+          ref: d.ref,
+          repo: d.repo,
+          pauseWhenIdle: d.pauseWhenIdle,
+        });
+        const box = $("#add-wizard-result");
+        const notes = (result.warnings || []).map((w) => `<div class="muted small-label">• ${esc(w)}</div>`).join("");
+        if (box) box.innerHTML = `<div class="git-banner ok">Added ${esc(result.slug)}</div>${notes}`;
+        await loadProjects(true);
+        setTimeout(() => $("#add-project-modal").classList.add("hidden"), notes ? 2200 : 700);
+      })
+    );
+  }
 }
 
 // ---- Compute ----
@@ -745,6 +976,9 @@ function initButtons() {
 
   const fetchRefresh = $("#fetch-refresh-btn");
   fetchRefresh && fetchRefresh.addEventListener("click", withLoading(fetchRefresh, () => loadActivity(true, true)));
+
+  const addProjectBtn = $("#add-project-btn");
+  addProjectBtn && addProjectBtn.addEventListener("click", () => openAddProjectWizard());
 
   // "View all →" buttons under the compact Overview tables jump to the full tab.
   $$(".view-all-btn").forEach((btn) => {
