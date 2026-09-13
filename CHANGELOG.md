@@ -88,6 +88,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Dashboard sidebar nav + footer (theme toggle, Stop server) no longer
   scroll off-screen: the sidebar is sticky to the viewport and the nav
   list scrolls internally if the window is short.
+- Dashboard main pane now uses the full remaining window width instead
+  of capping at 1100px.
 
 ## [0.1.0] - 2026-09-12
 
