@@ -195,6 +195,26 @@ def _git_run(repo: str, *args: str, timeout: int = 60) -> tuple[bool, str, str]:
         return False, "", str(e)
 
 
+def _gh_run(repo: str, *args: str, timeout: int = 45) -> tuple[bool, str, str]:
+    import subprocess
+
+    try:
+        proc = subprocess.run(
+            ["gh", *args],
+            cwd=repo,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+        return proc.returncode == 0, (proc.stdout or "").strip(), (proc.stderr or "").strip()
+    except subprocess.TimeoutExpired:
+        return False, "", "timed out"
+    except FileNotFoundError:
+        return False, "", "gh not found"
+    except Exception as e:  # noqa: BLE001
+        return False, "", str(e)
+
+
 def _project_repo(slug_or_name: str) -> tuple[str, str]:
     slug, proj = resolve_project(slug_or_name)
     repo = proj.get("repo")
@@ -822,6 +842,7 @@ def cmd_git_status(slug_or_name: str) -> dict:
         "ahead": info.get("ahead"),
         "behind": info.get("behind"),
         "files": files,
+        "pr": _pr_for_repo(repo),
     }
 
 
@@ -848,6 +869,9 @@ def cmd_commit(slug_or_name: str, message: str | None = None) -> dict:
 
 def cmd_push(slug_or_name: str) -> dict:
     slug, repo = _project_repo(slug_or_name)
+    behind = (_last_push_info(repo).get("behind") or 0)
+    if behind > 0:
+        return {"ok": False, "slug": slug, "error": f"branch is {behind} commit(s) behind remote — pull first"}
     upstream = _git(repo, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}")
     if upstream:
         ok, out, err = _git_run(repo, "push", timeout=90)
@@ -861,6 +885,44 @@ def cmd_push(slug_or_name: str) -> dict:
     if not ok:
         return {"ok": False, "slug": slug, "error": err or out or "push failed"}
     return {"ok": True, "slug": slug, "message": out or err or "pushed"}
+
+
+def cmd_pull(slug_or_name: str) -> dict:
+    slug, repo = _project_repo(slug_or_name)
+    ok, out, err = _git_run(repo, "pull", "--ff-only", timeout=90)
+    if not ok:
+        return {"ok": False, "slug": slug, "error": err or out or "pull failed"}
+    return {"ok": True, "slug": slug, "message": out or err or "already up to date"}
+
+
+def _pr_for_repo(repo: str) -> dict | None:
+    ok, out, _ = _gh_run(repo, "pr", "view", "--json", "number,title,url,state")
+    if not ok or not out:
+        return None
+    try:
+        return json.loads(out)
+    except json.JSONDecodeError:
+        return None
+
+
+def cmd_pr_create(slug_or_name: str, title: str | None = None) -> dict:
+    slug, repo = _project_repo(slug_or_name)
+    behind = (_last_push_info(repo).get("behind") or 0)
+    if behind > 0:
+        return {"ok": False, "slug": slug, "error": f"branch is {behind} commit(s) behind remote — pull first"}
+    existing = _pr_for_repo(repo)
+    if existing:
+        return {"ok": True, "slug": slug, "pr": existing, "message": f"PR already open: {existing.get('url')}"}
+    args = ["pr", "create"]
+    if title and title.strip():
+        args += ["--title", title.strip(), "--body", ""]
+    else:
+        args += ["--fill"]
+    ok, out, err = _gh_run(repo, *args, timeout=60)
+    if not ok:
+        return {"ok": False, "slug": slug, "error": err or out or "could not create pull request"}
+    pr = _pr_for_repo(repo) or {"url": out}
+    return {"ok": True, "slug": slug, "pr": pr, "message": out or pr.get("url") or "pull request created"}
 
 
 # --------------------------------------------------------------------------
@@ -964,6 +1026,11 @@ def main(argv: list[str]) -> None:
         out(cmd_commit(rest[0], message))
     elif cmd == "push":
         out(cmd_push(rest[0]))
+    elif cmd == "pull":
+        out(cmd_pull(rest[0]))
+    elif cmd == "pr-create":
+        title = rest[1] if len(rest) > 1 else None
+        out(cmd_pr_create(rest[0], title))
     elif cmd == "last-push":
         out(cmd_last_push(fetch="--fetch" in rest))
     elif cmd == "env-show":

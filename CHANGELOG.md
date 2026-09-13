@@ -68,6 +68,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Add project wizard on the Projects tab (and `sudowho add-project`)
   walks through name/slug, account + identity, repo path / Supabase ref,
   and pause-when-idle, then writes the entry to local `config.json`.
+- Git pull and GitHub pull requests from the project modal: Pull,
+  Create/Open PR (`gh pr`), plus a warning when the branch is behind
+  remote so you pull first. Push and PR create refuse until you're
+  caught up. Also `sudowho pull` / `sudowho pr`.
 
 ### Changed
 - Overview activity heatmap: removed the project/range filter controls

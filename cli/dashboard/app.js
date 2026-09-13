@@ -516,6 +516,12 @@ async function openProjectModal(slug, notice) {
         html += row("Last commit", d.lastPush.lastPushSubject);
         html += row("Ahead / behind", `${d.lastPush.ahead ?? "?"} / ${d.lastPush.behind ?? "?"}`);
         html += row("Working tree", d.lastPush.dirty ? `<span class="status-pill inactive">dirty</span>` : `<span class="status-pill active">clean</span>`);
+        if ((d.lastPush.behind || 0) > 0) {
+          html += `<div class="git-banner warn pull-warn">
+            This branch is ${d.lastPush.behind} commit(s) behind remote — pull first before pushing or opening a PR.
+            <button class="mini-btn" type="button" id="detail-pull-btn">Pull now</button>
+          </div>`;
+        }
         html += `<div id="git-actions-slot"></div>`;
       } else {
         html += row("Status", d.lastPush.error || "no repo configured");
@@ -531,6 +537,19 @@ async function openProjectModal(slug, notice) {
 
     body.innerHTML = html;
     if (d.lastPush && d.lastPush.ok) {
+      const pullBtn = $("#detail-pull-btn");
+      if (pullBtn) {
+        pullBtn.dataset.loadingLabel = "Pulling...";
+        pullBtn.addEventListener(
+          "click",
+          withLoading(pullBtn, async () => {
+            const result = await post("/api/pull", { slug: d.slug });
+            await openProjectModal(d.slug, { ok: true, text: result.message || "Pulled" });
+            const active = $(".nav-item.active");
+            if (active && active.dataset.view === "projects") loadProjects(true);
+          })
+        );
+      }
       fillGitSlot($("#git-actions-slot"), d.slug, notice, (n) => openProjectModal(d.slug, n));
     }
   } catch (e) {
@@ -542,26 +561,37 @@ async function openProjectModal(slug, notice) {
 function renderGitActions(git) {
   const dirty = !!(git && git.dirty);
   const ahead = !!(git && git.ahead > 0);
+  const behind = !!(git && git.behind > 0);
   const files = (git && git.files) || [];
+  const pr = git && git.pr;
   const fileList = files.length
     ? `<div class="git-files">${files
         .map((f) => `<div class="git-file"><span class="code">${esc(f.status)}</span><span>${esc(f.path)}</span></div>`)
         .join("")}</div>`
     : `<div class="muted small-label">No uncommitted changes.</div>`;
-  const hint = dirty
-    ? "Leave the message blank to auto-generate one from the changed files."
-    : ahead
-      ? `${git.ahead} commit(s) ahead of remote — ready to push.`
-      : "Working tree clean — nothing to commit.";
+  const hint = behind
+    ? `This branch is ${git.behind} commit(s) behind remote — pull first before pushing or opening a PR.`
+    : dirty
+      ? "Leave the message blank to auto-generate one from the changed files."
+      : ahead
+        ? `${git.ahead} commit(s) ahead of remote — ready to push.`
+        : "Working tree clean — nothing to commit.";
+  const prRow = pr
+    ? `<div class="pr-row">Open PR: <a class="text-link" href="${esc(pr.url)}" target="_blank" rel="noreferrer">#${esc(pr.number)} ${esc(pr.title)}</a></div>`
+    : "";
   return `
     <div class="git-actions">
+      ${behind ? `<div class="git-banner warn">Behind remote — pull first.</div>` : ""}
+      ${prRow}
       ${fileList}
       <textarea class="git-msg" placeholder="Commit message (optional — auto-generated if blank)" ${dirty ? "" : "disabled"}></textarea>
       <div class="muted small-label">${hint}</div>
       <div class="git-btns">
+        <button class="mini-btn git-pull-btn" type="button">Pull</button>
         <button class="mini-btn git-commit-btn" type="button" ${dirty ? "" : "disabled"}>Commit</button>
-        <button class="mini-btn git-push-btn" type="button" ${ahead ? "" : "disabled"}>Push</button>
-        <button class="mini-btn primary git-both-btn" type="button" ${dirty ? "" : "disabled"}>Commit &amp; push</button>
+        <button class="mini-btn git-push-btn" type="button" ${ahead && !behind ? "" : "disabled"}>Push</button>
+        <button class="mini-btn primary git-both-btn" type="button" ${dirty && !behind ? "" : "disabled"}>Commit &amp; push</button>
+        <button class="mini-btn git-pr-btn" type="button" ${behind ? "disabled" : ""}>${pr ? "Open PR" : "Create PR"}</button>
       </div>
       <div class="git-result"></div>
     </div>`;
@@ -584,15 +614,27 @@ function fillGitSlot(slot, slug, notice, onSuccess) {
       if (notice) showBanner(notice.ok, notice.text);
 
       const msgEl = slot.querySelector(".git-msg");
+      const pullBtn = slot.querySelector(".git-pull-btn");
       const commitBtn = slot.querySelector(".git-commit-btn");
       const pushBtn = slot.querySelector(".git-push-btn");
       const bothBtn = slot.querySelector(".git-both-btn");
+      const prBtn = slot.querySelector(".git-pr-btn");
       const done = async (ok, text) => {
         if (onSuccess) await onSuccess({ ok, text });
         const active = $(".nav-item.active");
         if (active && active.dataset.view === "projects") loadProjects(true);
       };
 
+      if (pullBtn) {
+        pullBtn.dataset.loadingLabel = "Pulling...";
+        pullBtn.addEventListener(
+          "click",
+          withLoading(pullBtn, async () => {
+            const result = await post("/api/pull", { slug });
+            await done(true, result.message || "Pulled");
+          })
+        );
+      }
       if (commitBtn && !commitBtn.disabled) {
         commitBtn.dataset.loadingLabel = "Committing...";
         commitBtn.addEventListener(
@@ -623,6 +665,21 @@ function fillGitSlot(slot, slug, notice, onSuccess) {
             await done(true, `Committed ${committed.hash} and ${pushed.message || "pushed"}`);
           })
         );
+      }
+      if (prBtn && !prBtn.disabled) {
+        if (git.pr && git.pr.url) {
+          prBtn.addEventListener("click", () => window.open(git.pr.url, "_blank"));
+        } else {
+          prBtn.dataset.loadingLabel = "Opening PR...";
+          prBtn.addEventListener(
+            "click",
+            withLoading(prBtn, async () => {
+              const result = await post("/api/pr-create", { slug, title: msgEl && msgEl.value });
+              if (result.pr && result.pr.url) window.open(result.pr.url, "_blank");
+              await done(true, result.message || "Pull request ready");
+            })
+          );
+        }
       }
     })
     .catch((e) => {

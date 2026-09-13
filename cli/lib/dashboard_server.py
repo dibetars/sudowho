@@ -281,6 +281,21 @@ class Handler(BaseHTTPRequestHandler):
                     result = core.cmd_push(slug)
                     _invalidate("last-push", "heatmap", "project:", "project-cards")
                     self._json(result, status=200 if result.get("ok") else 400)
+            elif path == "/api/pull":
+                slug = body.get("slug")
+                if not slug:
+                    self._json({"error": "missing slug"}, 400)
+                else:
+                    result = core.cmd_pull(slug)
+                    _invalidate("last-push", "heatmap", "project:", "project-cards")
+                    self._json(result, status=200 if result.get("ok") else 400)
+            elif path == "/api/pr-create":
+                slug = body.get("slug")
+                if not slug:
+                    self._json({"error": "missing slug"}, 400)
+                else:
+                    result = core.cmd_pr_create(slug, body.get("title"))
+                    self._json(result, status=200 if result.get("ok") else 400)
             elif path == "/api/vercel-login":
                 profile = body.get("profile")
                 if not profile:

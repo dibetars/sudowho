@@ -341,6 +341,10 @@ code, .inline { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, mono
 .git-banner { font-size: 12.5px; padding: 8px 10px; border-radius: 8px; }
 .git-banner.ok { background: color-mix(in srgb, var(--good) 14%, transparent); color: var(--good); }
 .git-banner.err { background: color-mix(in srgb, var(--bad) 14%, transparent); color: var(--bad); }
+.git-banner.warn { background: color-mix(in srgb, var(--warn) 14%, transparent); color: var(--warn); }
+.pull-warn { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin: 10px 0; }
+.pr-row { font-size: 12.5px; margin-bottom: 8px; }
+.pr-row .text-link { color: var(--accent-2); }
 
 /* Stop server */
 .stop-btn { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 40%, var(--border)); }

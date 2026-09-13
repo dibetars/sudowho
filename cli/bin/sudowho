@@ -59,6 +59,8 @@ Projects / compute (Supabase)
   sudowho last-push [--fetch]
   sudowho commit <project> [-m "msg"]   Commit (auto-message if -m omitted)
   sudowho push <project>                Push the project's configured repo
+  sudowho pull <project>                Fast-forward pull
+  sudowho pr <project>                  Create or reuse a GitHub pull request
 
 Env vault
   sudowho env <project>
@@ -274,6 +276,8 @@ PY
       py commit "$proj" "$msg"
       ;;
     push) shift; py push "$1" ;;
+    pull) shift; py pull "$1" ;;
+    pr) shift; py pr-create "$1" ;;
     activity-heatmap) shift; py activity-heatmap "$@" ;;
     status-breakdown) py status-breakdown ;;
     project) shift; py project-detail "$@" ;;
